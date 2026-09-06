@@ -8,6 +8,7 @@ import {
 } from '@/lib/constants';
 import {
   decorateItem, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
+  buildPantryBinSummaries, buildPantryBinCategorySections,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
   type Section,
@@ -19,7 +20,7 @@ import PullToRefresh from './PullToRefresh';
 import SwipeBack from './SwipeBack';
 
 type Screen =
-  | 'home' | 'location' | 'itemDetail' | 'add1' | 'add2' | 'add3'
+  | 'home' | 'location' | 'pantryBin' | 'itemDetail' | 'add1' | 'add2' | 'add3'
   | 'receiptScan' | 'receiptReview' | 'grocery' | 'search'
   | 'recipes' | 'recipeDetail' | 'recipeAdd1' | 'recipeAdd2' | 'recipeAdd3';
 
@@ -39,6 +40,7 @@ interface UiState {
   tab: 'home' | 'grocery' | 'recipes' | 'search';
   searchQuery: string;
   selectedLocationId: LocationId | null;
+  selectedPantryBin: string | null;
   selectedItemId: string | null;
   itemDetailReturnTo: Screen;
   recipeDetailReturnTo: Screen;
@@ -72,7 +74,7 @@ interface UiState {
 
 const initialState: UiState = {
   screen: 'home', tab: 'home', searchQuery: '',
-  selectedLocationId: null, selectedItemId: null, itemDetailReturnTo: 'location', recipeDetailReturnTo: 'recipes',
+  selectedLocationId: null, selectedPantryBin: null, selectedItemId: null, itemDetailReturnTo: 'location', recipeDetailReturnTo: 'recipes',
   locationCategoryFilter: null, storeFilter: null,
   addReturnTab: 'home', addDraft: BLANK_DRAFT, manualDraft: '', addPhotoStatus: 'idle',
   receiptStatus: 'idle', receiptErrorText: '', receiptDraftItems: [], receiptStore: null, expandedReceiptItemId: null,
@@ -106,7 +108,9 @@ export default function App() {
   );
 
   // ---------- navigation ----------
-  const openLocation = (id: LocationId) => () => patch({ screen: 'location', selectedLocationId: id, locationCategoryFilter: null });
+  const openLocation = (id: LocationId) => () => patch({ screen: 'location', selectedLocationId: id, locationCategoryFilter: null, selectedPantryBin: null });
+  const openPantryBin = (bin: string | null) => () => patch({ screen: 'pantryBin', selectedLocationId: 'pantry', selectedPantryBin: bin });
+  const backToPantry = () => patch({ screen: 'location', selectedLocationId: 'pantry', selectedPantryBin: null });
   const openItem = (returnTo: Screen) => (id: string) => () => patch({ screen: 'itemDetail', selectedItemId: id, itemDetailReturnTo: returnTo });
   const backToHome = () => patch({ screen: 'home' });
   const closeItemDetail = () => patch({ screen: st.itemDetailReturnTo });
@@ -179,7 +183,14 @@ export default function App() {
       date: d.skipDate ? null : (d.date || null),
     };
     kitchen.saveItem(null, body);
-    patch({ screen: 'location', tab: st.addReturnTab, selectedLocationId: body.location, addDraft: BLANK_DRAFT });
+    const toPantry = body.location === 'pantry';
+    patch({
+      screen: toPantry ? 'pantryBin' : 'location',
+      tab: st.addReturnTab,
+      selectedLocationId: body.location,
+      selectedPantryBin: toPantry ? body.bin : null,
+      addDraft: BLANK_DRAFT,
+    });
   };
 
   // ---------- receipt scan ----------
@@ -445,9 +456,24 @@ export default function App() {
   const currentLocationId = st.selectedLocationId || 'pantry';
   const currentLocationIsPantry = currentLocationId === 'pantry';
   const locationSections: Section[] = currentLocationIsPantry
-    ? buildPantrySections(decorated, openItem('location'))
+    ? []
     : buildLocationCategorySections(decorated, currentLocationId, st.locationCategoryFilter, openItem('location'));
   const filterChips = currentLocationIsPantry ? [] : categoryChipsForLocation(decorated, currentLocationId, st.locationCategoryFilter, (id) => patch({ locationCategoryFilter: id }));
+
+  // ---------- pantry bin grid + bin detail ----------
+  const pantryBinSummaries = useMemo(() => buildPantryBinSummaries(decorated), [decorated]);
+  const pantryBinCards = [
+    { key: '__all__', label: 'All Items', count: pantryStats.count, alerts: 0, onOpen: openPantryBin(null) },
+    ...pantryBinSummaries.map((s) => ({ key: s.bin, label: s.bin, count: s.count, alerts: s.alerts, onOpen: openPantryBin(s.bin) })),
+  ];
+  const pantryBinIsAll = st.selectedPantryBin === null;
+  const pantryBinSections: Section[] = pantryBinIsAll
+    ? buildPantrySections(decorated, openItem('pantryBin'))
+    : buildPantryBinCategorySections(decorated, st.selectedPantryBin ?? '', openItem('pantryBin'));
+  const pantryBinLabel = pantryBinIsAll ? 'All Items' : (st.selectedPantryBin ?? 'Other');
+  const pantryBinCount = pantryBinIsAll
+    ? pantryStats.count
+    : decorated.filter((i) => i.location === 'pantry' && (i.bin || 'Other') === st.selectedPantryBin).length;
 
   // ---------- grocery screen ----------
   const taggedGrocerySections: Section[] = buildGrocerySections(decorated, kitchen.groceryExtras, st.storeFilter, toggleAuto, removeManual).map((sec) => ({
@@ -522,6 +548,7 @@ export default function App() {
   // Tab roots are absent, so swipe-back is disabled there.
   const swipeBackHandlers: Partial<Record<Screen, () => void>> = {
     location: backToHome,
+    pantryBin: backToPantry,
     itemDetail: closeItemDetail,
     add1: cancelAdd,
     receiptScan: backToAdd1FromReceipt,
@@ -537,6 +564,7 @@ export default function App() {
 
   const swipeBackTargets: Partial<Record<Screen, Screen>> = {
     location: 'home',
+    pantryBin: 'location',
     itemDetail: st.itemDetailReturnTo,
     add1: st.addReturnTab,
     receiptScan: 'add1',
@@ -567,7 +595,13 @@ export default function App() {
           />
         );
       case 'location':
-        return (
+        return currentLocationIsPantry ? (
+          <PantryBinsScreen
+            count={pantryStats.count}
+            cards={pantryBinCards}
+            onBack={backToHome}
+          />
+        ) : (
           <LocationScreen
             label={LOCATION_MAP[currentLocationId]?.label || ''}
             count={decorated.filter((i) => i.location === currentLocationId).length}
@@ -575,6 +609,17 @@ export default function App() {
             filterChips={filterChips}
             sections={locationSections}
             onBack={backToHome}
+          />
+        );
+      case 'pantryBin':
+        return (
+          <LocationScreen
+            label={pantryBinLabel}
+            count={pantryBinCount}
+            showFilters={false}
+            filterChips={[]}
+            sections={pantryBinSections}
+            onBack={backToPantry}
           />
         );
       case 'itemDetail':
@@ -906,6 +951,38 @@ function LocationScreen(props: { label: string; count: number; showFilters: bool
             {sec.rows.map((row) => <RowCard key={row.id} row={row} />)}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function PantryBinsScreen(props: {
+  count: number;
+  cards: { key: string; label: string; count: number; alerts: number; onOpen: () => void }[];
+  onBack: () => void;
+}) {
+  const { count, cards, onBack } = props;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="px-5 pt-5 pb-3 shrink-0">
+        <BackLink label="Back" onClick={onBack} />
+        <div className="text-[24px] font-extrabold mt-2.5" style={{ color: text }}>Pantry</div>
+        <div className="text-[13.5px] mt-0.5" style={{ color: muted }}>{count} items</div>
+      </div>
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-10">
+        <div className="grid grid-cols-2 gap-3">
+          {cards.map((c) => (
+            <div key={c.key} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: card, border: `1.5px solid ${border}` }}>
+              {c.alerts > 0 && (
+                <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-white text-[11px] font-bold flex items-center justify-center" style={{ background: errorColor }}>
+                  {c.alerts}
+                </div>
+              )}
+              <div className="text-[15px] font-bold pr-6 leading-snug" style={{ color: text }}>{c.label}</div>
+              <div className="text-[12.5px] mt-1" style={{ color: muted }}>{c.count} item{c.count === 1 ? '' : 's'}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

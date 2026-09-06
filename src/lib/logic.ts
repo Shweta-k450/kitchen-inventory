@@ -121,6 +121,42 @@ export function buildPantrySections(decorated: DecoratedItem[], openItem: (id: s
   }));
 }
 
+export interface PantryBinSummary {
+  bin: string;
+  count: number;
+  alerts: number;
+}
+
+/** One entry per pantry bin (empty-bin items bucket under "Other"), ordered like buildPantrySections. */
+export function buildPantryBinSummaries(decorated: DecoratedItem[]): PantryBinSummary[] {
+  const items = decorated.filter((i) => i.location === 'pantry');
+  const map: Record<string, DecoratedItem[]> = {};
+  items.forEach((i) => { const k = i.bin || 'Other'; (map[k] = map[k] || []).push(i); });
+  const keys = Object.keys(map).sort((a, b) => BIN_PRESETS.indexOf(a) - BIN_PRESETS.indexOf(b));
+  return keys.map((k) => ({
+    bin: k,
+    count: map[k].length,
+    alerts: map[k].filter((i) => i.needsRestock || i.soonOrUrgent).length,
+  }));
+}
+
+/** Items in a single pantry bin, grouped by category (like the fridge/freezer screens). */
+export function buildPantryBinCategorySections(decorated: DecoratedItem[], bin: string, openItem: (id: string) => () => void): Section[] {
+  const items = decorated.filter((i) => i.location === 'pantry' && (i.bin || 'Other') === bin);
+  const map: Record<string, DecoratedItem[]> = {};
+  items.forEach((i) => { (map[i.category] = map[i.category] || []).push(i); });
+  return CATEGORIES.filter((c) => map[c.id]).map((c) => ({
+    sectionTitle: c.label,
+    rows: map[c.id].map((i) => ({
+      id: i.id, name: i.name, dotColor: i.catDot,
+      meta: i.hasDate ? i.dateText : 'No date needed',
+      metaColor: i.hasDate ? i.dateColor : '#7a7452',
+      hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
+      onOpen: openItem(i.id),
+    })),
+  }));
+}
+
 export function buildLocationCategorySections(decorated: DecoratedItem[], locationId: LocationId, filter: string | null, openItem: (id: string) => () => void): Section[] {
   let items = decorated.filter((i) => i.location === locationId);
   if (filter) items = items.filter((i) => i.category === filter);
