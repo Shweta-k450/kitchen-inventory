@@ -19,7 +19,7 @@ import PullToRefresh from './PullToRefresh';
 
 type Screen =
   | 'home' | 'location' | 'itemDetail' | 'add1' | 'add2' | 'add3'
-  | 'receiptScan' | 'receiptReview' | 'grocery'
+  | 'receiptScan' | 'receiptReview' | 'grocery' | 'search'
   | 'recipes' | 'recipeDetail' | 'recipeAdd1' | 'recipeAdd2' | 'recipeAdd3';
 
 interface AddDraft {
@@ -35,13 +35,15 @@ interface ReceiptDraftItem {
 
 interface UiState {
   screen: Screen;
-  tab: 'home' | 'grocery' | 'recipes';
+  tab: 'home' | 'grocery' | 'recipes' | 'search';
+  searchQuery: string;
   selectedLocationId: LocationId | null;
   selectedItemId: string | null;
   itemDetailReturnTo: Screen;
+  recipeDetailReturnTo: Screen;
   locationCategoryFilter: string | null;
   storeFilter: string | null;
-  addReturnTab: 'home' | 'grocery' | 'recipes';
+  addReturnTab: 'home' | 'grocery' | 'recipes' | 'search';
   addDraft: AddDraft;
   manualDraft: string;
   addPhotoStatus: 'idle' | 'loading' | 'error';
@@ -68,8 +70,8 @@ interface UiState {
 }
 
 const initialState: UiState = {
-  screen: 'home', tab: 'home',
-  selectedLocationId: null, selectedItemId: null, itemDetailReturnTo: 'location',
+  screen: 'home', tab: 'home', searchQuery: '',
+  selectedLocationId: null, selectedItemId: null, itemDetailReturnTo: 'location', recipeDetailReturnTo: 'recipes',
   locationCategoryFilter: null, storeFilter: null,
   addReturnTab: 'home', addDraft: BLANK_DRAFT, manualDraft: '', addPhotoStatus: 'idle',
   receiptStatus: 'idle', receiptErrorText: '', receiptDraftItems: [], receiptStore: null, expandedReceiptItemId: null,
@@ -111,6 +113,9 @@ export default function App() {
   const goGroceryTab = () => patch({ screen: 'grocery', tab: 'grocery' });
   const goGrocery = () => patch({ screen: 'grocery', tab: 'grocery' });
   const goRecipesTab = () => patch({ screen: 'recipes', tab: 'recipes' });
+  const goSearchTab = () => patch({ screen: 'search', tab: 'search' });
+  const setSearchQuery = (e: ChangeEvent<HTMLInputElement>) => patch({ searchQuery: e.target.value });
+  const clearSearchQuery = () => patch({ searchQuery: '' });
 
   // ---------- item mutations ----------
   const toggleAuto = (id: string) => () => kitchen.setItemStatus(id, { status: 'ok' });
@@ -273,7 +278,7 @@ export default function App() {
   const setRecipeFilter = (f: 'all' | 'ready') => patch({ recipeFilter: f });
   const togglePlanned = (id: string, current: boolean) => () => kitchen.toggleRecipePlanned(id, current);
   const filteredRecipes = st.recipeFilter === 'ready' ? decoratedRecipes.filter((r) => r.readiness.ready) : decoratedRecipes;
-  const openRecipe = (id: string) => () => patch({ screen: 'recipeDetail', selectedRecipeId: id });
+  const openRecipe = (returnTo: Screen) => (id: string) => () => patch({ screen: 'recipeDetail', selectedRecipeId: id, recipeDetailReturnTo: returnTo });
   const startAddRecipe = () => patch({
     screen: 'recipeAdd1', editingRecipeId: null, recipeNameDraft: '', recipeIngredientTextDraft: '',
     recipeInstructionsDraft: '', recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [],
@@ -282,10 +287,13 @@ export default function App() {
 
   // ---------- recipes: detail ----------
   const selectedRecipe = decoratedRecipes.find((r) => r.id === st.selectedRecipeId) || null;
-  const closeRecipeDetail = () => patch({ screen: 'recipes' });
+  const closeRecipeDetail = () => patch({
+    screen: st.recipeDetailReturnTo,
+    tab: st.recipeDetailReturnTo === 'search' ? 'search' : 'recipes',
+  });
   const deleteRecipeHandler = () => {
     if (st.selectedRecipeId) kitchen.deleteRecipe(st.selectedRecipeId);
-    patch({ screen: 'recipes' });
+    patch({ screen: 'recipes', tab: 'recipes' });
   };
   const startEditRecipe = () => {
     if (!selectedRecipe) return;
@@ -455,6 +463,38 @@ export default function App() {
   const storeFilterChips = storeChipsForGrocery(decorated, st.storeFilter, setStoreFilter);
   const groceryTotal = decorated.filter((i) => i.needsRestock && (!st.storeFilter || i.store === st.storeFilter)).length + kitchen.groceryExtras.length + recipeGroceryRows.length;
 
+  // ---------- search ----------
+  const searchQ = st.searchQuery.trim().toLowerCase();
+  const openItemFromSearch = openItem('search');
+  const searchItemRows = !searchQ ? [] : decorated
+    .filter((i) =>
+      i.name.toLowerCase().includes(searchQ) ||
+      i.catLabel.toLowerCase().includes(searchQ) ||
+      (i.bin || '').toLowerCase().includes(searchQ) ||
+      i.locationLabel.toLowerCase().includes(searchQ) ||
+      (i.storeLabel || '').toLowerCase().includes(searchQ)
+    )
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((i) => ({
+      id: i.id, name: i.name, dotColor: i.catDot,
+      meta: i.catLabel + ' · ' + i.fullLocationLabel,
+      metaColor: muted,
+      hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
+      onOpen: openItemFromSearch(i.id),
+    }));
+  const searchRecipeRows = !searchQ ? [] : decoratedRecipes
+    .filter((r) =>
+      r.name.toLowerCase().includes(searchQ) ||
+      (r.ingredients || []).some((ing) => (ing.name || ing.text || '').toLowerCase().includes(searchQ))
+    )
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((r) => ({
+      id: r.id, name: r.name, dotColor: accent,
+      meta: r.readyLabel, metaColor: muted,
+      hasBadge: false, badgeText: '', badgeStyle: null as { background: string; color: string } | null,
+      onOpen: openRecipe('search')(r.id),
+    }));
+
   // ---------- item detail ----------
   const selectedItem = decorated.find((i) => i.id === st.selectedItemId) || null;
   const statusStyle = (isActive: boolean, color: string) => (isActive ? { background: hexToRgba(color, 0.18), color } : { background: section, color: muted });
@@ -474,7 +514,7 @@ export default function App() {
   const storeChipsArr = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(draft.store === s.id), onClick: pickStore(s.id) }));
   const receiptStoreChips = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(st.receiptStore === s.id), onClick: () => patch({ receiptStore: s.id }) }));
 
-  const showNav = st.screen === 'home' || st.screen === 'grocery' || st.screen === 'recipes';
+  const showNav = st.screen === 'home' || st.screen === 'grocery' || st.screen === 'recipes' || st.screen === 'search';
   const receiptIncludedCount = st.receiptDraftItems.filter((i) => i.include).length;
 
   return (
@@ -578,6 +618,16 @@ export default function App() {
           />
         )}
 
+        {st.screen === 'search' && (
+          <SearchScreen
+            query={st.searchQuery}
+            onQueryChange={setSearchQuery}
+            onClear={clearSearchQuery}
+            itemRows={searchItemRows}
+            recipeRows={searchRecipeRows}
+          />
+        )}
+
         {st.screen === 'grocery' && (
           <GroceryScreen
             countLabel={`${groceryTotal} item${groceryTotal === 1 ? '' : 's'} needed`}
@@ -600,7 +650,7 @@ export default function App() {
               plannedLabel: r.planned ? 'Planned ✓' : 'Plan to Cook',
               plannedStyle: r.planned ? { background: accent, color: 'white' } : { background: card, border: `1.5px solid ${border}`, color: accent },
               onTogglePlanned: togglePlanned(r.id, !!r.planned),
-              onOpen: openRecipe(r.id),
+              onOpen: openRecipe('recipes')(r.id),
             }))}
             empty={kitchen.recipes.length === 0}
             filteredEmpty={kitchen.recipes.length > 0 && filteredRecipes.length === 0}
@@ -686,7 +736,7 @@ export default function App() {
       {showNav && (
         <BottomNav
           activeTab={st.tab}
-          onHome={goHomeTab} onRecipes={goRecipesTab} onGrocery={goGroceryTab} onAdd={startAdd}
+          onHome={goHomeTab} onRecipes={goRecipesTab} onGrocery={goGroceryTab} onAdd={startAdd} onSearch={goSearchTab}
         />
       )}
     </div>
@@ -1052,6 +1102,66 @@ function Add3Screen(props: {
   );
 }
 
+type SearchRow = { id: string; name: string; dotColor: string; meta?: string; metaColor?: string; hasBadge: boolean; badgeText: string; badgeStyle: { background: string; color: string } | null; onOpen?: () => void };
+
+function SearchScreen(props: {
+  query: string;
+  onQueryChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onClear: () => void;
+  itemRows: SearchRow[];
+  recipeRows: SearchRow[];
+}) {
+  const { query, onQueryChange, onClear, itemRows, recipeRows } = props;
+  const trimmed = query.trim();
+  const totalCount = itemRows.length + recipeRows.length;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="px-5 pt-6 pb-3 shrink-0">
+        <div className="text-[26px] font-extrabold" style={{ color: text }}>Search</div>
+        <div className="flex items-center gap-2 mt-3.5 h-[46px] rounded-xl px-3.5" style={{ border: `1.5px solid ${border}`, background: card }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+          <input
+            value={query}
+            onChange={onQueryChange}
+            autoFocus
+            placeholder="Search items and recipes…"
+            className="flex-1 min-w-0 bg-transparent text-[15px] outline-none"
+            style={{ color: text }}
+          />
+          {trimmed !== '' && (
+            <div onClick={onClear} className="shrink-0 cursor-pointer" aria-label="Clear search">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </div>
+          )}
+        </div>
+        {trimmed !== '' && (
+          <div className="text-[13px] mt-2.5" style={{ color: muted }}>{totalCount} match{totalCount === 1 ? '' : 'es'}</div>
+        )}
+      </div>
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
+        {trimmed === '' && (
+          <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>Search your kitchen by item name, category, location, or recipe.</div>
+        )}
+        {trimmed !== '' && totalCount === 0 && (
+          <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>No matches for &ldquo;{trimmed}&rdquo;.</div>
+        )}
+        {itemRows.length > 0 && (
+          <div>
+            <div className="text-[12.5px] font-bold uppercase tracking-wide my-3.5" style={{ color: muted }}>Items</div>
+            {itemRows.map((row) => <RowCard key={row.id} row={row} />)}
+          </div>
+        )}
+        {recipeRows.length > 0 && (
+          <div>
+            <div className="text-[12.5px] font-bold uppercase tracking-wide my-3.5" style={{ color: muted }}>Recipes</div>
+            {recipeRows.map((row) => <RowCard key={row.id} row={row} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GroceryScreen(props: {
   countLabel: string; storeFilterChips: { id: string | null; label: string; style: CSSProperties; onClick: () => void }[];
   manualDraft: string; onManualDraftChange: (e: ChangeEvent<HTMLInputElement>) => void; onAddManual: () => void;
@@ -1346,27 +1456,32 @@ function RecipeAdd3Screen(props: {
   );
 }
 
-function BottomNav(props: { activeTab: string; onHome: () => void; onRecipes: () => void; onGrocery: () => void; onAdd: () => void }) {
-  const { activeTab, onHome, onRecipes, onGrocery, onAdd } = props;
+function BottomNav(props: { activeTab: string; onHome: () => void; onRecipes: () => void; onGrocery: () => void; onAdd: () => void; onSearch: () => void }) {
+  const { activeTab, onHome, onRecipes, onGrocery, onAdd, onSearch } = props;
   const homeColor = activeTab === 'home' ? accent : '#a6a496';
   const groceryColor = activeTab === 'grocery' ? accent : '#a6a496';
   const recipesColor = activeTab === 'recipes' ? accent : '#a6a496';
+  const searchColor = activeTab === 'search' ? accent : '#a6a496';
   return (
     <div className="relative shrink-0 h-[86px] flex items-start justify-around pt-2.5" style={{ background: card, borderTop: `1px solid ${border}` }}>
-      <div onClick={onHome} className="flex flex-col items-center gap-0.5 cursor-pointer w-[70px]">
+      <div onClick={onHome} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={homeColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11.5 12 4l8 7.5" /><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9" /></svg>
         <div className="text-[11.5px] font-semibold" style={{ color: homeColor }}>Home</div>
       </div>
-      <div onClick={onRecipes} className="flex flex-col items-center gap-0.5 cursor-pointer w-[70px]">
+      <div onClick={onRecipes} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={recipesColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9a2 2 0 0 1 2 2v15l-6.5-3.5L4 20V5a2 2 0 0 1 2-2z" /></svg>
         <div className="text-[11.5px] font-semibold" style={{ color: recipesColor }}>Recipes</div>
       </div>
       <div onClick={onAdd} className="relative -top-[22px] w-14 h-14 rounded-full flex items-center justify-center cursor-pointer shadow-lg" style={{ background: accent }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
       </div>
-      <div onClick={onGrocery} className="flex flex-col items-center gap-0.5 cursor-pointer w-[70px]">
+      <div onClick={onGrocery} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={groceryColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" /><path d="M3 4h2l2.4 12.2a1.5 1.5 0 0 0 1.48 1.3h8.24a1.5 1.5 0 0 0 1.47-1.2L21 8H6" /></svg>
         <div className="text-[11.5px] font-semibold" style={{ color: groceryColor }}>Grocery</div>
+      </div>
+      <div onClick={onSearch} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={searchColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+        <div className="text-[11.5px] font-semibold" style={{ color: searchColor }}>Search</div>
       </div>
     </div>
   );
