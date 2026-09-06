@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --color-page: #ead7c8;
+  --color-card: #f9f6f3;
+  --color-section: #efe4d8;
+  --color-border: #dacabe;
+  --color-text: #302a06;
+  --color-text-muted: #7a7452;
+  --color-text-faint: #a6a496;
+  --color-accent: #621117;
+  --color-accent-dark: #2d070a;
+  --color-error: #a31c26;
+  --color-success: #3d6218;
+  --color-success-bg: #4d7a1e;
+  --color-pink: #f7e3e5;
+}
+
+@theme inline {
+  --color-page: var(--color-page);
+  --color-card: var(--color-card);
+  --color-section: var(--color-section);
+  --color-border: var(--color-border);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-faint: var(--color-text-faint);
+  --color-accent: var(--color-accent);
+  --color-accent-dark: var(--color-accent-dark);
+  --color-error: var(--color-error);
+  --color-success: var(--color-success);
+  --color-pink: var(--color-pink);
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  overscroll-behavior-y: none;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.noscroll::-webkit-scrollbar { display: none; }
+.noscroll { -ms-overflow-style: none; scrollbar-width: none; }

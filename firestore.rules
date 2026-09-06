@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Kitchen Inventory security rules.
+//
+// This app has no login screen — anyone who has the app's URL and knows
+// nothing else can't read or write your data, because Firestore rejects
+// all access by default. These rules open up exactly the three collections
+// the app uses, with no per-user split, which matches how the app is meant
+// to be used: one Firebase project per household. If you want a second,
+// separate household (e.g. for a family member) to have their own data,
+// give them their own Firebase project — see DEPLOY.md, "Sharing with
+// someone else" section — rather than relaxing these rules further.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{itemId} {
+      allow read, write: if true;
+    }
+    match /groceryExtras/{docId} {
+      allow read, write: if true;
+    }
+    match /recipes/{recipeId} {
+      allow read, write: if true;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
