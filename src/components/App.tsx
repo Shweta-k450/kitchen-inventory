@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, type ChangeEvent, type CSSProperties } from 'react';
+import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import { useKitchenData } from '@/hooks/useKitchenData';
 import {
   CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS,
@@ -535,12 +535,25 @@ export default function App() {
   };
   const swipeBackHandler: (() => void) | null = swipeBackHandlers[st.screen] ?? null;
 
-  return (
-    <div className="min-h-dvh flex flex-col bg-[#ead7c8]" style={{ color: text }}>
-      <div className="flex-1 min-h-0 relative">
-      <SwipeBack enabled={swipeBackHandler !== null} onBack={swipeBackHandler ?? (() => {})} screenKey={st.screen}>
-      <PullToRefresh onRefresh={kitchen.refresh}>
-        {st.screen === 'home' && (
+  const swipeBackTargets: Partial<Record<Screen, Screen>> = {
+    location: 'home',
+    itemDetail: st.itemDetailReturnTo,
+    add1: st.addReturnTab,
+    receiptScan: 'add1',
+    receiptReview: st.addReturnTab,
+    add2: 'add1',
+    add3: 'add2',
+    recipeDetail: st.recipeDetailReturnTo,
+    recipeAdd1: st.editingRecipeId ? 'recipeDetail' : 'recipes',
+    recipeAdd2: 'recipeAdd1',
+    recipeAdd3: 'recipeAdd2',
+  };
+  const swipeBackTarget: Screen | null = swipeBackHandler ? (swipeBackTargets[st.screen] ?? null) : null;
+
+  const renderScreen = (s: Screen): ReactNode => {
+    switch (s) {
+      case 'home':
+        return (
           <HomeScreen
             totalItems={kitchen.items.length}
             dbStatus={kitchen.status}
@@ -552,9 +565,9 @@ export default function App() {
             openPantry={openLocation('pantry')} openFridge={openLocation('fridge')} openFreezer={openLocation('freezer')}
             openSpare={openLocation('spare-fridge')} openSpareFreezer={openLocation('spare-freezer')}
           />
-        )}
-
-        {st.screen === 'location' && (
+        );
+      case 'location':
+        return (
           <LocationScreen
             label={LOCATION_MAP[currentLocationId]?.label || ''}
             count={decorated.filter((i) => i.location === currentLocationId).length}
@@ -563,18 +576,18 @@ export default function App() {
             sections={locationSections}
             onBack={backToHome}
           />
-        )}
-
-        {st.screen === 'itemDetail' && selectedItem && (
+        );
+      case 'itemDetail':
+        return selectedItem ? (
           <ItemDetailScreen
             item={selectedItem}
             statusOptions={statusOptionDefs.map((o) => ({ label: o.label, style: statusStyle(selectedItem.status === o.key, o.color), onClick: setStatus(o.key) }))}
             onClose={closeItemDetail}
             onRemove={removeItemHandler}
           />
-        )}
-
-        {st.screen === 'add1' && (
+        ) : null;
+      case 'add1':
+        return (
           <Add1Screen
             onCancel={cancelAdd}
             onTakePhoto={takePhoto}
@@ -582,9 +595,9 @@ export default function App() {
             onStartReceiptScan={startReceiptScan}
             onEnterManually={enterManually}
           />
-        )}
-
-        {st.screen === 'receiptScan' && (
+        );
+      case 'receiptScan':
+        return (
           <ReceiptScanScreen
             status={st.receiptStatus}
             errorText={st.receiptErrorText}
@@ -592,9 +605,9 @@ export default function App() {
             onFileChange={onReceiptFileChange}
             onEnterManually={enterManuallyFromReceipt}
           />
-        )}
-
-        {st.screen === 'receiptReview' && (
+        );
+      case 'receiptReview':
+        return (
           <ReceiptReviewScreen
             items={st.receiptDraftItems}
             includedCount={receiptIncludedCount}
@@ -613,18 +626,18 @@ export default function App() {
             onSubmit={addReceiptItems}
             submitDisabled={receiptIncludedCount === 0}
           />
-        )}
-
-        {st.screen === 'add2' && (
+        );
+      case 'add2':
+        return (
           <Add2Screen
             hasPhoto={false}
             name={draft.name} onNameChange={setDraftName}
             categoryChips={categoryChips}
             onBack={backToAdd1} onContinue={goToAdd3}
           />
-        )}
-
-        {st.screen === 'add3' && (
+        );
+      case 'add3':
+        return (
           <Add3Screen
             locationChips={locationChips}
             isPantry={draft.location === 'pantry'}
@@ -635,9 +648,9 @@ export default function App() {
             skipDate={draft.skipDate} onToggleSkipDate={toggleSkipDate}
             onBack={backToAdd2} onSave={saveItem}
           />
-        )}
-
-        {st.screen === 'search' && (
+        );
+      case 'search':
+        return (
           <SearchScreen
             query={st.searchQuery}
             onQueryChange={setSearchQuery}
@@ -645,9 +658,9 @@ export default function App() {
             itemRows={searchItemRows}
             recipeRows={searchRecipeRows}
           />
-        )}
-
-        {st.screen === 'grocery' && (
+        );
+      case 'grocery':
+        return (
           <GroceryScreen
             countLabel={`${groceryTotal} item${groceryTotal === 1 ? '' : 's'} needed`}
             storeFilterChips={storeFilterChips}
@@ -655,9 +668,9 @@ export default function App() {
             sections={grocerySections}
             empty={groceryTotal === 0}
           />
-        )}
-
-        {st.screen === 'recipes' && (
+        );
+      case 'recipes':
+        return (
           <RecipesScreen
             filterChips={[{ id: 'all' as const, label: 'All Recipes' }, { id: 'ready' as const, label: 'Ready to Cook' }].map((f) => ({
               id: f.id, label: f.label, style: neutralChipStyle(st.recipeFilter === f.id), onClick: () => setRecipeFilter(f.id),
@@ -675,9 +688,9 @@ export default function App() {
             filteredEmpty={kitchen.recipes.length > 0 && filteredRecipes.length === 0}
             onAdd={startAddRecipe}
           />
-        )}
-
-        {st.screen === 'recipeDetail' && selectedRecipe && (
+        );
+      case 'recipeDetail':
+        return selectedRecipe ? (
           <RecipeDetailScreen
             recipe={selectedRecipe}
             ingredientRows={(selectedRecipe.ingredients || []).map((ing) => {
@@ -694,9 +707,9 @@ export default function App() {
             onDelete={deleteRecipeHandler}
             onTogglePlanned={togglePlanned(selectedRecipe.id, !!selectedRecipe.planned)}
           />
-        )}
-
-        {st.screen === 'recipeAdd1' && (
+        ) : null;
+      case 'recipeAdd1':
+        return (
           <RecipeAdd1Screen
             title={st.editingRecipeId ? 'Edit Recipe' : 'Add a Recipe'}
             name={st.recipeNameDraft} onNameChange={setRecipeNameDraft}
@@ -710,9 +723,9 @@ export default function App() {
             onContinue={parseRecipeIngredients}
             onSkipManual={skipToManualIngredients}
           />
-        )}
-
-        {st.screen === 'recipeAdd2' && (
+        );
+      case 'recipeAdd2':
+        return (
           <RecipeAdd2Screen
             rows={st.recipeIngredientDrafts.map((ing) => ({
               ingId: ing.ingId, name: ing.name, quantity: ing.quantity,
@@ -734,9 +747,9 @@ export default function App() {
             onContinue={goToRecipeAdd3}
             continueDisabled={st.recipeIngredientDrafts.length === 0}
           />
-        )}
-
-        {st.screen === 'recipeAdd3' && (
+        );
+      case 'recipeAdd3':
+        return (
           <RecipeAdd3Screen
             hasPhoto={!!st.recipePhotoDataUrl}
             photoDataUrl={st.recipePhotoDataUrl}
@@ -748,9 +761,25 @@ export default function App() {
             saveLabel={st.recipeSaveStatus === 'loading' ? 'Estimating nutrition…' : (st.editingRecipeId ? 'Save Changes' : 'Save Recipe')}
             saveDisabled={st.recipeSaveStatus === 'loading'}
           />
-        )}
-      </PullToRefresh>
-      </SwipeBack>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="min-h-dvh flex flex-col bg-[#ead7c8]" style={{ color: text }}>
+      <div className="flex-1 min-h-0 relative">
+        <SwipeBack
+          enabled={swipeBackHandler !== null}
+          onBack={swipeBackHandler ?? (() => {})}
+          back={swipeBackTarget ? renderScreen(swipeBackTarget) : null}
+          screenKey={st.screen}
+        >
+          <PullToRefresh onRefresh={kitchen.refresh}>
+            {renderScreen(st.screen)}
+          </PullToRefresh>
+        </SwipeBack>
       </div>
 
       {showNav && (
