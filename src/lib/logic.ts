@@ -22,9 +22,32 @@ export function hexToRgba(hex: string, alpha: number): string {
   return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
 }
 
+/** Readable text color (near-black or white) to sit on top of a solid `hex` fill. */
+export function onColor(hex: string): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.62 ? '#2a2016' : '#ffffff';
+}
+
+/** A muted variant of onColor(), for secondary text on the same fill. */
+export function onColorMuted(hex: string): string {
+  return onColor(hex) === '#ffffff' ? 'rgba(255,255,255,0.78)' : 'rgba(42,32,22,0.66)';
+}
+
+// Category chips are always the category's solid color; the selected one gets a
+// contrasting ring in its own text color.
 export function chipStyle(selected: boolean, color: string): CSSProperties {
-  if (selected) return { background: hexToRgba(color, 0.18), border: '1.5px solid ' + color, color: '#302a06', fontWeight: 700 };
-  return { background: '#f9f6f3', border: '1.5px solid #dacabe', color: '#7a7452', fontWeight: 500 };
+  const fg = onColor(color);
+  return {
+    background: color,
+    color: fg,
+    border: `2px solid ${selected ? fg : 'rgba(0,0,0,0.10)'}`,
+    fontWeight: selected ? 800 : 600,
+    opacity: selected ? 1 : 0.72,
+  };
 }
 
 export function neutralChipStyle(selected: boolean): CSSProperties {
@@ -37,6 +60,7 @@ export interface DecoratedItem extends Item {
   catDot: string;
   catColor: string;
   locationLabel: string;
+  locColor: string;
   fullLocationLabel: string;
   storeLabel: string;
   hasStore: boolean;
@@ -71,6 +95,7 @@ export function decorateItem(item: Item): DecoratedItem {
     catDot: cat.color,
     catColor: cat.color,
     locationLabel: loc.label,
+    locColor: loc.color,
     fullLocationLabel: item.bin ? loc.label + ' · ' + item.bin : loc.label,
     storeLabel: store ? store.label : '',
     hasStore: !!store,

@@ -1,24 +1,29 @@
 import type { CategoryDef, StoreDef, Item, DateType, LocationId } from './types';
 
+// Palette (paint-chip set): Pool at Sunset #2488C5, Mint Chip #B2DD9E,
+// Pink Guava #FFA9A5, Fresh Snow #F4E4D9, Olive Jar #AD9547, Ox-Blood #601A00,
+// Fire Hydrant #D2423A, Green Velvet #2D3F35, Hay Stacks #EFCB84.
+// These are used as solid backgrounds behind category/location text, so a
+// category that appears alongside another in the same screen gets a distinct hue.
 export const CATEGORIES: CategoryDef[] = [
-  { id: 'indian-spices', label: 'Indian Spices', color: '#741b21' },
-  { id: 'western-spices', label: 'Western Spices', color: '#cf303b' },
-  { id: 'grains', label: 'Grains', color: '#cf986e' },
-  { id: 'lentils', label: 'Lentils', color: '#a16436' },
-  { id: 'beans', label: 'Beans', color: '#827217' },
-  { id: 'pasta', label: 'Pasta', color: '#c98d5e' },
-  { id: 'breakfast', label: 'Breakfast', color: '#c775b7' },
-  { id: 'baking-supplies', label: 'Baking Supplies', color: '#734726' },
-  { id: 'condiments', label: 'Condiments', color: '#983e86' },
-  { id: 'bread', label: 'Bread', color: '#bf7740' },
-  { id: 'vegetables', label: 'Vegetables', color: '#b6a020' },
-  { id: 'fruits', label: 'Fruits', color: '#da626a' },
-  { id: 'herbs', label: 'Herbs', color: '#dfc849' },
-  { id: 'oils', label: 'Oils', color: '#574c0f' },
-  { id: 'frozen-foods', label: 'Frozen Foods', color: '#9275c7' },
-  { id: 'frozen-snacks', label: 'Frozen Snacks', color: '#5e3e98' },
-  { id: 'frozen-veggies', label: 'Frozen Veggies', color: '#4b818b' },
-  { id: 'frozen-fruit', label: 'Frozen Fruit', color: '#81b1bb' },
+  { id: 'indian-spices', label: 'Indian Spices', color: '#601A00' },
+  { id: 'western-spices', label: 'Western Spices', color: '#D2423A' },
+  { id: 'grains', label: 'Grains', color: '#EFCB84' },
+  { id: 'lentils', label: 'Lentils', color: '#AD9547' },
+  { id: 'beans', label: 'Beans', color: '#2D3F35' },
+  { id: 'pasta', label: 'Pasta', color: '#2488C5' },
+  { id: 'breakfast', label: 'Breakfast', color: '#FFA9A5' },
+  { id: 'baking-supplies', label: 'Baking Supplies', color: '#F4E4D9' },
+  { id: 'condiments', label: 'Condiments', color: '#F4E4D9' },
+  { id: 'bread', label: 'Bread', color: '#EFCB84' },
+  { id: 'vegetables', label: 'Vegetables', color: '#B2DD9E' },
+  { id: 'fruits', label: 'Fruits', color: '#FFA9A5' },
+  { id: 'herbs', label: 'Herbs', color: '#2D3F35' },
+  { id: 'oils', label: 'Oils', color: '#AD9547' },
+  { id: 'frozen-foods', label: 'Frozen Foods', color: '#2488C5' },
+  { id: 'frozen-snacks', label: 'Frozen Snacks', color: '#601A00' },
+  { id: 'frozen-veggies', label: 'Frozen Veggies', color: '#B2DD9E' },
+  { id: 'frozen-fruit', label: 'Frozen Fruit', color: '#FFA9A5' },
 ];
 export const CATEGORY_MAP: Record<string, CategoryDef> = {};
 CATEGORIES.forEach((c) => { CATEGORY_MAP[c.id] = c; });
@@ -39,14 +44,14 @@ export const DEFAULT_LOCATION_BY_CATEGORY: Record<string, LocationId> = {
   'frozen-veggies': 'freezer', 'frozen-fruit': 'freezer',
 };
 
-export const LOCATIONS: { id: LocationId; label: string }[] = [
-  { id: 'pantry', label: 'Pantry' },
-  { id: 'fridge', label: 'Fridge' },
-  { id: 'freezer', label: 'Freezer' },
-  { id: 'spare-fridge', label: 'Spare Fridge' },
-  { id: 'spare-freezer', label: 'Spare Freezer' },
+export const LOCATIONS: { id: LocationId; label: string; color: string }[] = [
+  { id: 'pantry', label: 'Pantry', color: '#EFCB84' },
+  { id: 'fridge', label: 'Fridge', color: '#2488C5' },
+  { id: 'freezer', label: 'Freezer', color: '#B2DD9E' },
+  { id: 'spare-fridge', label: 'Spare Fridge', color: '#FFA9A5' },
+  { id: 'spare-freezer', label: 'Spare Freezer', color: '#2D3F35' },
 ];
-export const LOCATION_MAP: Record<string, { id: LocationId; label: string }> = {};
+export const LOCATION_MAP: Record<string, { id: LocationId; label: string; color: string }> = {};
 LOCATIONS.forEach((l) => { LOCATION_MAP[l.id] = l; });
 
 export const STORES: StoreDef[] = [
