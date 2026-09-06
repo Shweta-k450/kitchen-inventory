@@ -23,6 +23,8 @@ export interface Item {
   status: ItemStatus;
   dateType: DateType;
   date: string | null; // ISO date string, or null
+  quantity?: number | null; // amount on hand, paired with `unit`
+  unit?: string | null; // 'kg' | 'g' | 'L' | 'mL' | 'lb' | 'oz' | 'count' | 'pack'
 }
 
 export interface Ingredient {

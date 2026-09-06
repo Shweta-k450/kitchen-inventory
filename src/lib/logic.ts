@@ -14,6 +14,33 @@ export function formatDate(dateStr: string): string {
   return months[d.getMonth()] + ' ' + d.getDate();
 }
 
+/** Human label for a quantity+unit pair, e.g. "2 kg", "500 g", "3" (count), or "" when unset. */
+export function formatQty(quantity: number | null | undefined, unit: string | null | undefined): string {
+  if (quantity == null || Number.isNaN(quantity)) return '';
+  const n = Number.isInteger(quantity) ? String(quantity) : String(Number(quantity.toFixed(2)));
+  return unit && unit !== 'count' ? `${n} ${unit}` : n;
+}
+
+/** Best-effort parse of a free-text quantity like "2 lb", "500g", "1" into a structured amount + unit. */
+export function parseQtyString(raw: string | null | undefined): { quantity: number | null; unit: string | null } {
+  const s = (raw || '').trim().toLowerCase();
+  const m = s.match(/([\d]+(?:\.\d+)?)\s*([a-z]*)/);
+  if (!m) return { quantity: null, unit: null };
+  const quantity = parseFloat(m[1]);
+  if (Number.isNaN(quantity)) return { quantity: null, unit: null };
+  const u = m[2];
+  const map: Record<string, string> = {
+    kg: 'kg', kgs: 'kg', kilo: 'kg', kilos: 'kg', kilogram: 'kg', kilograms: 'kg',
+    g: 'g', gram: 'g', grams: 'g', gm: 'g',
+    l: 'L', liter: 'L', litre: 'L', liters: 'L', litres: 'L',
+    ml: 'mL', mls: 'mL',
+    lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+    oz: 'oz', ounce: 'oz', ounces: 'oz',
+    pack: 'pack', packs: 'pack', pk: 'pack', ct: 'count', count: 'count', x: 'count',
+  };
+  return { quantity, unit: u && map[u] ? map[u] : 'count' };
+}
+
 export function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace('#', '');
   const r = parseInt(h.substring(0, 2), 16);
@@ -67,6 +94,8 @@ export interface DecoratedItem extends Item {
   dateText: string;
   dateColor: string;
   hasDate: boolean;
+  qtyText: string;
+  hasQty: boolean;
   badgeText: string;
   hasBadge: boolean;
   badgeStyle: { background: string; color: string } | null;
@@ -102,6 +131,8 @@ export function decorateItem(item: Item): DecoratedItem {
     dateText,
     dateColor,
     hasDate: !!item.date,
+    qtyText: formatQty(item.quantity, item.unit),
+    hasQty: item.quantity != null && !Number.isNaN(item.quantity),
     badgeText,
     hasBadge: !!badgeText,
     badgeStyle,
@@ -198,7 +229,7 @@ export function buildPantrySections(decorated: DecoratedItem[], openItem: (id: s
     sectionTitle: g.title,
     rows: g.items.map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
-      meta: i.catLabel + (i.dateText ? ' · ' + i.dateText : ''),
+      meta: [i.catLabel, i.qtyText, i.dateText].filter(Boolean).join(' · '),
       metaColor: i.dateText ? i.dateColor : '#7a7452',
       hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
       onOpen: openItem(i.id),
@@ -231,7 +262,7 @@ export function buildPantryBinCategorySections(decorated: DecoratedItem[], bin: 
     sectionTitle: c.label,
     rows: map[c.id].map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
-      meta: i.hasDate ? i.dateText : 'No date needed',
+      meta: [i.qtyText, i.hasDate ? i.dateText : 'No date needed'].filter(Boolean).join(' · '),
       metaColor: i.hasDate ? i.dateColor : '#7a7452',
       hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
       onOpen: openItem(i.id),
@@ -248,7 +279,7 @@ export function buildLocationCategorySections(decorated: DecoratedItem[], locati
     sectionTitle: c.label,
     rows: map[c.id].map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
-      meta: i.hasDate ? i.dateText : 'No date needed',
+      meta: [i.qtyText, i.hasDate ? i.dateText : 'No date needed'].filter(Boolean).join(' · '),
       metaColor: i.hasDate ? i.dateColor : '#7a7452',
       hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
       onOpen: openItem(i.id),

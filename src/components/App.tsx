@@ -3,12 +3,12 @@
 import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import { useKitchenData } from '@/hooks/useKitchenData';
 import {
-  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS,
+  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS, UNITS,
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
   decorateItem, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
-  buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins,
+  buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
   type Section,
@@ -27,8 +27,9 @@ type Screen =
 interface AddDraft {
   name: string; category: string | null; location: LocationId | null; bin: string;
   store: string | null; date: string; dateType: 'expiry' | 'consume-by'; skipDate: boolean;
+  qty: string; unit: string | null;
 }
-const BLANK_DRAFT: AddDraft = { name: '', category: null, location: null, bin: '', store: null, date: '', dateType: 'expiry', skipDate: false };
+const BLANK_DRAFT: AddDraft = { name: '', category: null, location: null, bin: '', store: null, date: '', dateType: 'expiry', skipDate: false, qty: '', unit: null };
 
 interface ReceiptDraftItem {
   tempId: string; include: boolean; name: string; quantity: string; category: string;
@@ -147,6 +148,21 @@ export default function App() {
   const setItemBin = (b: string) => () => {
     if (st.selectedItemId) kitchen.updateItem(st.selectedItemId, { bin: b });
   };
+  const commitItemQty = (raw: string) => {
+    const id = st.selectedItemId;
+    if (!id) return;
+    const cur = kitchen.items.find((i) => i.id === id);
+    const n = parseFloat(raw);
+    const quantity = raw.trim() && Number.isFinite(n) && n >= 0 ? n : null;
+    kitchen.updateItem(id, { quantity, unit: quantity == null ? null : (cur?.unit || 'count') });
+  };
+  const setItemUnit = (u: string) => () => {
+    const id = st.selectedItemId;
+    if (!id) return;
+    const cur = kitchen.items.find((i) => i.id === id);
+    if (cur?.quantity == null) return; // no amount yet — nothing to attach a unit to
+    kitchen.updateItem(id, { unit: cur.unit === u ? 'count' : u });
+  };
 
   // ---------- add flow ----------
   const startAdd = () => patch({ screen: 'add1', addReturnTab: st.tab });
@@ -164,6 +180,8 @@ export default function App() {
   const pickStore = (id: string) => () => updateDraft({ store: id });
   const setDraftDate = (e: ChangeEvent<HTMLInputElement>) => updateDraft({ date: e.target.value });
   const toggleSkipDate = () => updateDraft({ skipDate: !st.addDraft.skipDate, date: '' });
+  const setDraftQty = (e: ChangeEvent<HTMLInputElement>) => updateDraft({ qty: e.target.value });
+  const pickUnit = (u: string) => () => updateDraft({ unit: st.addDraft.unit === u ? null : u });
 
   const takePhoto = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files && e.target.files[0];
@@ -180,13 +198,15 @@ export default function App() {
       screen: 'add2',
       addDraft: {
         name: item.name, category: item.category, location: null, bin: '', store: null,
-        date: '', dateType: 'expiry', skipDate: !item.needsDate,
+        date: '', dateType: 'expiry', skipDate: !item.needsDate, qty: '', unit: null,
       },
     });
   };
 
   const saveItem = () => {
     const d = st.addDraft;
+    const qtyNum = parseFloat(d.qty);
+    const quantity = d.qty.trim() && Number.isFinite(qtyNum) && qtyNum >= 0 ? qtyNum : null;
     const body: Omit<Item, 'id'> = {
       name: d.name.trim() ? d.name.trim() : 'New Item',
       category: d.category || 'grains',
@@ -196,6 +216,8 @@ export default function App() {
       status: 'ok',
       dateType: d.skipDate ? null : d.dateType,
       date: d.skipDate ? null : (d.date || null),
+      quantity,
+      unit: quantity == null ? null : (d.unit || 'count'),
     };
     kitchen.saveItem(null, body);
     const toPantry = body.location === 'pantry';
@@ -276,6 +298,7 @@ export default function App() {
   const addReceiptItems = () => {
     const included = st.receiptDraftItems.filter((it) => it.include);
     included.forEach((it, idx) => {
+      const { quantity, unit } = parseQtyString(it.quantity);
       const body: Omit<Item, 'id'> = {
         name: it.name.trim() ? it.name.trim() : 'New Item',
         category: it.category,
@@ -285,6 +308,8 @@ export default function App() {
         status: 'ok',
         dateType: it.skipDate ? null : it.dateType,
         date: it.skipDate ? null : (it.date || null),
+        quantity,
+        unit,
       };
       kitchen.saveItem(`r${Date.now()}-${idx}`, body);
     });
@@ -519,7 +544,7 @@ export default function App() {
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
-      meta: i.catLabel + ' · ' + i.fullLocationLabel,
+      meta: [i.catLabel, i.qtyText, i.fullLocationLabel].filter(Boolean).join(' · '),
       metaColor: muted,
       hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
       onOpen: openItemFromSearch(i.id),
@@ -554,6 +579,7 @@ export default function App() {
   const locationChips = LOCATIONS.map((l) => ({ id: l.id, label: l.label, style: neutralChipStyle(draft.location === l.id), onClick: pickLocation(l.id) }));
   const binChipsArr = knownPantryBins(kitchen.items).map((b) => ({ label: b, style: neutralChipStyle(normBin(draft.bin) === normBin(b)), onClick: pickBin(b) }));
   const storeChipsArr = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(draft.store === s.id), onClick: pickStore(s.id) }));
+  const unitChipsArr = UNITS.map((u) => ({ label: u, style: neutralChipStyle(draft.unit === u), onClick: pickUnit(u) }));
   const receiptStoreChips = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(st.receiptStore === s.id), onClick: () => patch({ receiptStore: s.id }) }));
 
   const showNav = st.screen === 'home' || st.screen === 'grocery' || st.screen === 'recipes' || st.screen === 'search';
@@ -649,6 +675,8 @@ export default function App() {
             locationOptions={LOCATIONS.map((l) => ({ label: l.label, style: chipStyle(si.location === l.id, l.color), onClick: setItemLocation(l.id) }))}
             isPantry={si.location === 'pantry'}
             binOptions={binNames.map((b) => ({ label: b, style: neutralChipStyle(normBin(si.bin) === normBin(b)), onClick: setItemBin(b) }))}
+            unitOptions={UNITS.map((u) => ({ label: u, style: neutralChipStyle((si.unit || 'count') === u), onClick: setItemUnit(u) }))}
+            onQtyCommit={commitItemQty}
             onClose={closeItemDetail}
             onRemove={removeItemHandler}
           />
@@ -711,6 +739,7 @@ export default function App() {
             isPantry={draft.location === 'pantry'}
             bin={draft.bin} onBinChange={setDraftBin} binChips={binChipsArr}
             storeChips={storeChipsArr}
+            qty={draft.qty} onQtyChange={setDraftQty} unitChips={unitChipsArr}
             dateHeading={draft.dateType === 'consume-by' ? 'Consume By' : 'Expiry Date'}
             showDateInput={!draft.skipDate} date={draft.date} onDateChange={setDraftDate}
             skipDate={draft.skipDate} onToggleSkipDate={toggleSkipDate}
@@ -1025,10 +1054,14 @@ function ItemDetailScreen(props: {
   locationOptions: { label: string; style: CSSProperties; onClick: () => void }[];
   isPantry: boolean;
   binOptions: { label: string; style: CSSProperties; onClick: () => void }[];
+  unitOptions: { label: string; style: CSSProperties; onClick: () => void }[];
+  onQtyCommit: (raw: string) => void;
   onClose: () => void;
   onRemove: () => void;
 }) {
-  const { item, statusOptions, locationOptions, isPantry, binOptions, onClose, onRemove } = props;
+  const { item, statusOptions, locationOptions, isPantry, binOptions, unitOptions, onQtyCommit, onClose, onRemove } = props;
+  const [qtyDraft, setQtyDraft] = useState(item.quantity != null ? String(item.quantity) : '');
+  const commitQty = () => { if (qtyDraft.trim() !== (item.quantity != null ? String(item.quantity) : '')) onQtyCommit(qtyDraft); };
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
@@ -1040,6 +1073,7 @@ function ItemDetailScreen(props: {
         <div className="flex flex-wrap gap-2 mt-2.5">
           <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.catColor, color: onColor(item.catColor), border: '1px solid rgba(0,0,0,0.06)' }}>{item.catLabel}</div>
           <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.locColor, color: onColor(item.locColor), border: '1px solid rgba(0,0,0,0.06)' }}>{item.fullLocationLabel}</div>
+          {item.hasQty && <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: section, color: text }}>{item.qtyText}</div>}
           {item.hasStore && <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: section, color: text }}>{item.storeLabel}</div>}
         </div>
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Status</div>
@@ -1047,6 +1081,21 @@ function ItemDetailScreen(props: {
           {statusOptions.map((o) => (
             <div key={o.label} onClick={o.onClick} className="text-center px-1 py-2.5 rounded-xl text-[12.5px] font-semibold cursor-pointer" style={o.style}>{o.label}</div>
           ))}
+        </div>
+
+        <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Quantity</div>
+        <input
+          value={qtyDraft}
+          onChange={(e) => setQtyDraft(e.target.value)}
+          onBlur={commitQty}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          inputMode="decimal"
+          placeholder="Amount on hand"
+          className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none"
+          style={{ border: `1.5px solid ${border}`, background: card, color: text }}
+        />
+        <div className="flex flex-wrap gap-2 mt-2.5">
+          {unitOptions.map((o) => <Chip key={o.label} label={o.label} style={o.style} onClick={o.onClick} />)}
         </div>
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Location</div>
@@ -1268,10 +1317,11 @@ function Add3Screen(props: {
   locationChips: { id: string; label: string; style: CSSProperties; onClick: () => void }[]; isPantry: boolean;
   bin: string; onBinChange: (e: ChangeEvent<HTMLInputElement>) => void; binChips: { label: string; style: CSSProperties; onClick: () => void }[];
   storeChips: { id: string; label: string; style: CSSProperties; onClick: () => void }[];
+  qty: string; onQtyChange: (e: ChangeEvent<HTMLInputElement>) => void; unitChips: { label: string; style: CSSProperties; onClick: () => void }[];
   dateHeading: string; showDateInput: boolean; date: string; onDateChange: (e: ChangeEvent<HTMLInputElement>) => void;
   skipDate: boolean; onToggleSkipDate: () => void; onBack: () => void; onSave: () => void;
 }) {
-  const { locationChips, isPantry, bin, onBinChange, binChips, storeChips, dateHeading, showDateInput, date, onDateChange, skipDate, onToggleSkipDate, onBack, onSave } = props;
+  const { locationChips, isPantry, bin, onBinChange, binChips, storeChips, qty, onQtyChange, unitChips, dateHeading, showDateInput, date, onDateChange, skipDate, onToggleSkipDate, onBack, onSave } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
@@ -1279,6 +1329,11 @@ function Add3Screen(props: {
         <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Storage Details</div>
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Where does this go?</div>
         <div className="flex flex-wrap gap-2">{locationChips.map((c) => <Chip key={c.id} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
+
+        <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>How much? (optional)</div>
+        <input value={qty} onChange={onQtyChange} inputMode="decimal" placeholder="e.g. 2" className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
+        <div className="flex flex-wrap gap-2 mt-2.5">{unitChips.map((c) => <Chip key={c.label} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
+
         {isPantry && (
           <>
             <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Which cupboard or bin?</div>
