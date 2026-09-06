@@ -11,6 +11,7 @@ import {
   buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
+  parseAmount, formatAmount,
   buildMealPlanGroceryRows, mondayOf, isoDate, addDays, weekDates, weekRangeLabel, dayLabel,
   planCookEffects, servingsLeft, preparedFreshness,
   type Section, type SectionRow, type CookEffect,
@@ -406,6 +407,7 @@ export default function App() {
       recipeServingsDraft: recipe.servings ? String(recipe.servings) : st.recipeServingsDraft,
       recipeIngredientTextDraft: recipe.ingredientsText || st.recipeIngredientTextDraft,
       recipeInstructionsDraft: recipe.instructions || st.recipeInstructionsDraft,
+      recipePhotoDataUrl: recipe.photoDataUrl || st.recipePhotoDataUrl,
     });
   };
   const setRecipeServingsDraft = (e: ChangeEvent<HTMLInputElement>) => patch({ recipeServingsDraft: e.target.value });
@@ -447,8 +449,8 @@ export default function App() {
   const removeIngredientDraft = (ingId: string) => () => patch({ recipeIngredientDrafts: st.recipeIngredientDrafts.filter((ing) => ing.ingId !== ingId) });
   const pickIngredientCategory = (ingId: string, catId: string | null) => () => updateIngredientDraft(ingId, { category: catId });
   const setIngredientAmount = (ingId: string) => (e: ChangeEvent<HTMLInputElement>) => {
-    const n = parseFloat(e.target.value);
-    updateIngredientDraft(ingId, { amount: e.target.value.trim() && Number.isFinite(n) && n > 0 ? n : null });
+    const raw = e.target.value;
+    updateIngredientDraft(ingId, { amountText: raw, amount: parseAmount(raw) });
   };
   const pickIngredientUnit = (ingId: string, u: string) => () => {
     const cur = st.recipeIngredientDrafts.find((i) => i.ingId === ingId);
@@ -477,11 +479,15 @@ export default function App() {
   };
   const removeRecipePhoto = () => patch({ recipePhotoDataUrl: '', recipePhotoStatus: 'idle' });
 
-  const draftIngredients = (): Ingredient[] => st.recipeIngredientDrafts.map((ing) => ({
-    ingId: ing.ingId, text: ing.text, name: ing.name, quantity: ing.quantity,
-    amount: ing.amount ?? null, unit: ing.amount != null ? (ing.unit || 'count') : null,
-    category: ing.category, trackable: ing.trackable !== false,
-  }));
+  const draftIngredients = (): Ingredient[] => st.recipeIngredientDrafts.map((ing) => {
+    const amount = ing.amount ?? null;
+    return {
+      ingId: ing.ingId, text: ing.text, name: ing.name, quantity: ing.quantity,
+      amount, amountText: amount != null ? (ing.amountText || String(amount)) : null,
+      unit: amount != null ? (ing.unit || 'count') : null,
+      category: ing.category, trackable: ing.trackable !== false,
+    };
+  });
 
   const saveRecipe = async () => {
     const name = st.recipeNameDraft.trim() ? st.recipeNameDraft.trim() : 'Untitled Recipe';
@@ -641,13 +647,14 @@ export default function App() {
       recipeParseStatus: 'idle',
       recipeIngredientDrafts: (r.ingredients || []).map((ing, idx) => {
         const p = items ? items[idx] : undefined;
-        const amt = p ? Number(p.amount) : NaN;
-        const hasAmt = Number.isFinite(amt) && amt > 0;
+        const parsed = p ? parseAmount(p.amount as string | number | null | undefined) : null;
+        const amount = parsed ?? ing.amount ?? null;
         const parsedUnit = p && typeof p.unit === 'string' && RECIPE_UNITS.includes(p.unit) ? p.unit : null;
         return {
           ...ing,
-          amount: hasAmt ? amt : (ing.amount ?? null),
-          unit: hasAmt ? (parsedUnit || ing.unit || 'count') : (ing.unit ?? null),
+          amount,
+          amountText: amount != null ? (ing.amountText || formatAmount(amount) || String(amount)) : null,
+          unit: parsed != null ? (parsedUnit || ing.unit || 'count') : (ing.unit ?? null),
         };
       }),
     });
@@ -824,10 +831,10 @@ export default function App() {
 
   const ingredientEditorRows = () => st.recipeIngredientDrafts.map((ing) => ({
     ingId: ing.ingId, name: ing.name, quantity: ing.quantity,
-    amount: ing.amount != null ? String(ing.amount) : '',
+    amount: ing.amountText != null ? ing.amountText : (ing.amount != null ? String(ing.amount) : ''),
     summaryLine: [
       ing.category ? CATEGORY_MAP[ing.category].label : 'Uncategorized',
-      ing.amount != null ? `${ing.amount}${ing.unit && ing.unit !== 'count' ? ' ' + ing.unit : ''}` : (ing.quantity || null),
+      ing.amount != null ? `${formatAmount(ing.amount)}${ing.unit && ing.unit !== 'count' ? ' ' + ing.unit : ''}` : (ing.quantity || null),
     ].filter(Boolean).join(' · '),
     catDot: ing.category ? CATEGORY_MAP[ing.category].color : '#a6a496',
     isExpanded: st.expandedRecipeIngredientId === ing.ingId,
@@ -1113,7 +1120,8 @@ export default function App() {
               else if (m.has) { statusText = 'In stock'; statusColor = '#3d6218'; }
               else if (m.matchedItem) { statusText = ({ low: 'Low', out: 'Out', 'buy-now': 'Buy Now', skip: 'Skip' } as Record<string, string>)[m.matchedItem.status] || 'Not enough'; statusColor = errorColor; }
               else { statusText = 'Not in pantry'; statusColor = errorColor; }
-              return { ingId: ing.ingId, text: titleCaseWords(ing.name) + (ing.quantity ? ' — ' + ing.quantity : ''), statusText, statusColor, dotColor: (m.has || m.alwaysHave) ? '#3d6218' : errorColor };
+              const amt = ing.quantity || (ing.amount != null ? `${formatAmount(ing.amount)}${ing.unit && ing.unit !== 'count' ? ' ' + ing.unit : ''}` : '');
+              return { ingId: ing.ingId, text: titleCaseWords(ing.name) + (amt ? ' — ' + amt : ''), statusText, statusColor, dotColor: (m.has || m.alwaysHave) ? '#3d6218' : errorColor };
             })}
             onClose={closeRecipeDetail}
             onEdit={startEditRecipe}
@@ -2020,7 +2028,7 @@ function RecipeAdd2Screen(props: {
               {row.isExpanded && (
                 <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${fgMuted}` }}>
                   <input value={row.name} onChange={row.onNameChange} placeholder="Ingredient name" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
-                  <input value={row.amount} onChange={row.onAmountChange} inputMode="decimal" placeholder="Amount (e.g. 2)" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none mt-2" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
+                  <input value={row.amount} onChange={row.onAmountChange} placeholder="Amount — e.g. 2, 0.25, or 1/4" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none mt-2" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
                   <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: fgMuted }}>Unit</div>
                   <div className="flex flex-wrap gap-1.5">
                     {row.unitChips.map((c) => <Chip key={c.label} label={c.label} style={c.style} onClick={c.onClick} />)}

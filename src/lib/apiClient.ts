@@ -14,6 +14,7 @@ export interface ImportedRecipe {
   servings: number | null;
   ingredientsText: string;
   instructions: string;
+  photoDataUrl: string | null;
   source: 'structured' | 'ai';
 }
 

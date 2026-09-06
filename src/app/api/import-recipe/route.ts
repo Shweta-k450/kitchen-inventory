@@ -84,6 +84,42 @@ function instructionsToText(ins: unknown): string {
   return lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
 }
 
+function imageUrlFrom(v: unknown): string {
+  if (typeof v === 'string') return v.trim();
+  if (Array.isArray(v)) { for (const x of v) { const s = imageUrlFrom(x); if (s) return s; } return ''; }
+  if (v && typeof v === 'object') return imageUrlFrom((v as { url?: unknown }).url);
+  return '';
+}
+
+function ogImage(html: string): string {
+  const m = html.match(/<meta[^>]+property=["']og:image(?::url)?["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']/i);
+  return m ? decodeEntities(m[1]).trim() : '';
+}
+
+/** Fetch an image and inline it as a data URL; hand back the plain URL if it's too big to inline. */
+async function fetchImage(src: string, base: URL): Promise<string | null> {
+  let u: URL;
+  try { u = new URL(src, base); } catch { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(u.toString(), { signal: controller.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KitchenInventoryBot/1.0)' } });
+    if (!res.ok) return null;
+    const type = (res.headers.get('content-type') || '').split(';')[0].trim() || 'image/jpeg';
+    if (!type.startsWith('image/')) return null;
+    if (Number(res.headers.get('content-length') || 0) > 3_000_000) return u.toString();
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > 480_000) return u.toString();
+    return `data:${type};base64,${Buffer.from(buf).toString('base64')}`;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchHtml(url: URL): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
@@ -115,18 +151,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: code }, { status: 502 });
   }
 
+  const photoSrc = (v: unknown) => imageUrlFrom(v) || ogImage(html);
+
   // 1) schema.org/Recipe structured data
   const ld = findRecipeLd(html);
   if (ld) {
     const name = textFrom(ld.name);
     const ingredients = Array.isArray(ld.recipeIngredient) ? (ld.recipeIngredient as unknown[]).map(textFrom).filter(Boolean) : [];
     if (name && ingredients.length) {
+      const src = photoSrc(ld.image);
       return NextResponse.json({
         recipe: {
           name,
           servings: yieldToNumber(ld.recipeYield),
           ingredientsText: ingredients.join('\n'),
           instructions: instructionsToText(ld.recipeInstructions),
+          photoDataUrl: src ? await fetchImage(src, url) : null,
           source: 'structured',
         },
       });
@@ -152,12 +192,14 @@ export async function POST(request: Request) {
     const name = typeof r.name === 'string' ? r.name.trim() : '';
     const ingredients = Array.isArray(r.ingredients) ? (r.ingredients as unknown[]).map((x) => String(x).trim()).filter(Boolean) : [];
     if (!name || !ingredients.length) return NextResponse.json({ error: 'no_recipe' }, { status: 422 });
+    const src = ogImage(html);
     return NextResponse.json({
       recipe: {
         name,
         servings: typeof r.servings === 'number' && r.servings > 0 ? Math.round(r.servings) : null,
         ingredientsText: ingredients.join('\n'),
         instructions: typeof r.instructions === 'string' ? r.instructions : '',
+        photoDataUrl: src ? await fetchImage(src, url) : null,
         source: 'ai',
       },
     });

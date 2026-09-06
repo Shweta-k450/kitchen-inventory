@@ -14,10 +14,47 @@ export function formatDate(dateStr: string): string {
   return months[d.getMonth()] + ' ' + d.getDate();
 }
 
-/** Human label for a quantity+unit pair, e.g. "2 kg", "500 g", "3" (count), or "" when unset. */
+const UNICODE_FRACTIONS: Record<string, string> = {
+  '½': '1/2', '⅓': '1/3', '⅔': '2/3', '¼': '1/4', '¾': '3/4',
+  '⅕': '1/5', '⅖': '2/5', '⅗': '3/5', '⅘': '4/5', '⅙': '1/6', '⅚': '5/6',
+  '⅐': '1/7', '⅛': '1/8', '⅜': '3/8', '⅝': '5/8', '⅞': '7/8', '⅑': '1/9', '⅒': '1/10',
+};
+
+/** Parse "1/4", "1 1/2", "0.25", "1½", "2" into a number, or null. */
+export function parseAmount(raw: string | number | null | undefined): number | null {
+  if (typeof raw === 'number') return Number.isFinite(raw) && raw > 0 ? raw : null;
+  if (raw == null) return null;
+  let s = String(raw).trim().replace(/[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅐⅛⅜⅝⅞⅑⅒]/g, (m) => ' ' + UNICODE_FRACTIONS[m]).trim();
+  if (!s) return null;
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  let m = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/); // "1 1/2"
+  if (m) { const n = Number(m[1]) + Number(m[2]) / Number(m[3]); return n > 0 && Number.isFinite(n) ? round(n) : null; }
+  m = s.match(/^(\d+)\s*\/\s*(\d+)$/); // "1/2"
+  if (m) { const n = Number(m[1]) / Number(m[2]); return n > 0 && Number.isFinite(n) ? round(n) : null; }
+  if (/^\d*\.?\d+$/.test(s)) { const n = parseFloat(s); return Number.isFinite(n) && n > 0 ? round(n) : null; }
+  return null;
+}
+
+const COMMON_FRACTIONS: [number, string][] = [
+  [0.25, '¼'], [0.5, '½'], [0.75, '¾'], [1 / 3, '⅓'], [2 / 3, '⅔'], [0.125, '⅛'], [0.375, '⅜'], [0.625, '⅝'], [0.875, '⅞'],
+];
+
+/** Display a number as a tidy fraction/mixed number where it's a common one, else a short decimal. */
+export function formatAmount(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n <= 0) return '';
+  if (Number.isInteger(n)) return String(n);
+  const whole = Math.floor(n);
+  const frac = n - whole;
+  for (const [v, glyph] of COMMON_FRACTIONS) {
+    if (Math.abs(frac - v) < 0.02) return whole > 0 ? `${whole} ${glyph}` : glyph;
+  }
+  return String(Number(n.toFixed(2)));
+}
+
+/** Human label for a quantity+unit pair, e.g. "2 kg", "½ tsp", "3" (count), or "" when unset. */
 export function formatQty(quantity: number | null | undefined, unit: string | null | undefined): string {
   if (quantity == null || Number.isNaN(quantity)) return '';
-  const n = Number.isInteger(quantity) ? String(quantity) : String(Number(quantity.toFixed(2)));
+  const n = formatAmount(quantity) || String(quantity);
   return unit && unit !== 'count' ? `${n} ${unit}` : n;
 }
 
@@ -357,12 +394,12 @@ export function buildIngredientRow(raw: Partial<Ingredient> & { text?: string },
   const text = raw && raw.text && String(raw.text).trim() ? String(raw.text).trim() : 'Ingredient ' + (idx + 1);
   const name = raw && raw.name && String(raw.name).trim() ? String(raw.name).trim().toLowerCase() : text.toLowerCase();
   const quantity = raw && raw.quantity != null && String(raw.quantity).trim() ? String(raw.quantity).trim() : '';
-  const amountRaw = raw ? Number(raw.amount) : NaN;
-  const amount = Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : null;
+  const amount = raw ? parseAmount(raw.amountText ?? raw.amount) : null;
+  const amountText = amount != null ? (raw && raw.amountText && String(raw.amountText).trim() ? String(raw.amountText).trim() : (formatAmount(amount) || String(amount))) : null;
   const unit = amount != null && raw && raw.unit && RECIPE_UNITS.includes(raw.unit) ? raw.unit : null;
   return {
     ingId: 'i' + idx + '-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
-    text, name, quantity, amount, unit, category: catId,
+    text, name, quantity, amount, amountText, unit, category: catId,
     trackable: raw && raw.trackable === false ? false : true,
   };
 }

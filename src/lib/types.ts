@@ -32,7 +32,8 @@ export interface Ingredient {
   text: string;
   name: string;
   quantity: string; // free text as written, kept for display
-  amount?: number | null; // structured amount, for meal-plan shopping math
+  amount?: number | null; // structured amount (parsed), for meal-plan shopping math
+  amountText?: string | null; // amount exactly as typed, e.g. "1/4" — round-trips the editor field
   unit?: string | null; // g kg mL L tsp tbsp cup oz lb count clove slice pinch pack
   category: string | null;
   trackable: boolean;
