@@ -1355,13 +1355,14 @@ function RecipesScreen(props: {
       <div className="px-5 pt-6 pb-3 shrink-0">
         <div className="text-[26px] font-extrabold" style={{ color: text }}>Recipes</div>
         <div className="flex gap-2 mt-3.5">{filterChips.map((c) => <Chip key={c.id} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
+        <button onClick={onAdd} className="w-full h-11 mt-3 rounded-xl text-white text-[14.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: accent }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          Add Recipe
+        </button>
       </div>
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
         {empty && (
-          <div className="text-center py-16 px-5">
-            <div className="text-sm" style={{ color: muted }}>No recipes yet — add the ones you cook at home.</div>
-            <button onClick={onAdd} className="mt-4 px-5 py-2.5 rounded-xl text-white text-sm font-bold" style={{ background: accent }}>Add a Recipe</button>
-          </div>
+          <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>No recipes yet — add the ones you cook at home.</div>
         )}
         {filteredEmpty && <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>Nothing&apos;s ready to cook right now.</div>}
         {recipes.map((r) => (
@@ -1381,11 +1382,6 @@ function RecipesScreen(props: {
           </div>
         ))}
       </div>
-      {!empty && (
-        <button onClick={onAdd} className="absolute bottom-[110px] right-5 w-12 h-12 rounded-full text-white flex items-center justify-center shadow-lg" style={{ background: accent }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-        </button>
-      )}
     </div>
   );
 }
