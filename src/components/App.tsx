@@ -15,6 +15,7 @@ import {
 import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi } from '@/lib/apiClient';
 import type { Item, LocationId, Ingredient, Recipe } from '@/lib/types';
 import { Chip, BackLink } from './Chip';
+import PullToRefresh from './PullToRefresh';
 
 type Screen =
   | 'home' | 'location' | 'itemDetail' | 'add1' | 'add2' | 'add3'
@@ -479,6 +480,7 @@ export default function App() {
   return (
     <div className="min-h-dvh flex flex-col bg-[#ead7c8]" style={{ color: text }}>
       <div className="flex-1 min-h-0 relative">
+      <PullToRefresh onRefresh={kitchen.refresh}>
         {st.screen === 'home' && (
           <HomeScreen
             totalItems={kitchen.items.length}
@@ -678,6 +680,7 @@ export default function App() {
             saveDisabled={st.recipeSaveStatus === 'loading'}
           />
         )}
+      </PullToRefresh>
       </div>
 
       {showNav && (

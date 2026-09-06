@@ -54,3 +54,6 @@ button {
 
 .noscroll::-webkit-scrollbar { display: none; }
 .noscroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes pi-spin { to { transform: rotate(360deg); } }
+.pi-spin { animation: pi-spin 0.8s linear infinite; transform-origin: center; }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, writeBatch,
+  collection, doc, getDocs, onSnapshot, setDoc, updateDoc, deleteDoc, writeBatch,
 } from 'firebase/firestore';
 import { getDb, firebaseConfigured } from '@/lib/firebase';
 import { INITIAL_ITEMS } from '@/lib/constants';
@@ -134,10 +134,39 @@ export function useKitchenData() {
     updateDoc(doc(db, 'recipes', id), { planned: !current }).catch(() => {});
   }, []);
 
+  /**
+   * Manually re-fetches everything from Firestore right now, instead of waiting on the
+   * live onSnapshot listeners. The listeners should already push updates in real time
+   * (e.g. when someone else adds an item), but a phone that's been backgrounded for a
+   * while or briefly lost signal can end up with a stalled connection, so this backs a
+   * pull-to-refresh gesture as a reliable "get me current data" fallback.
+   */
+  const refresh = useCallback(async () => {
+    const db = getDb();
+    if (!db) {
+      setStatus('unavailable');
+      return;
+    }
+    try {
+      const [itemsSnap, groceriesSnap, recipesSnap] = await Promise.all([
+        getDocs(collection(db, 'items')),
+        getDocs(collection(db, 'groceryExtras')),
+        getDocs(collection(db, 'recipes')),
+      ]);
+      setItems(itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Item, 'id'>) })));
+      setGroceryExtras(groceriesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ManualGroceryItem, 'id'>) })));
+      setRecipes(recipesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Recipe, 'id'>) })));
+      setStatus('synced');
+    } catch {
+      setStatus('error');
+    }
+  }, []);
+
   return {
     items, groceryExtras, recipes, status,
     setItemStatus, saveItem, removeItem, addReceiptItems,
     addManualGroceryItem, removeManualGroceryItem,
     saveRecipe, deleteRecipe, toggleRecipePlanned,
+    refresh,
   };
 }
