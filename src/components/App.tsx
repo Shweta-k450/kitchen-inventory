@@ -151,31 +151,43 @@ export default function App() {
   const clearSearchQuery = () => patch({ searchQuery: '' });
 
   // ---------- item mutations ----------
-  // Checking a restock item off the grocery list: it's back in stock. If it tracks a
-  // quantity, that number is now stale, so drop it in the "To be sorted" bucket for
-  // the user to update the amount.
-  const toggleAuto = (id: string) => () => {
-    const it = kitchen.items.find((i) => i.id === id);
-    const tracksQty = !!it && (it.unit != null || it.quantity != null);
-    kitchen.setItemStatus(id, tracksQty ? { status: 'ok', needsSorting: true, sortReason: 'restocked' } : { status: 'ok' });
-  };
-  // Checking a hand-added grocery item off: turn it into a real inventory item. If
-  // something by that name already exists in the kitchen, just mark that back in
-  // stock; otherwise create it and leave it in the "To be sorted" bucket to be placed.
-  const removeManual = (id: string) => () => {
-    const name = (kitchen.groceryExtras.find((g) => g.id === id)?.name || '').trim();
-    const existing = name ? kitchen.items.find((i) => i.name.trim().toLowerCase() === name.toLowerCase()) : null;
+  // Ticking something off the grocery list means it's now in the kitchen. If we
+  // already track that item, mark it back in stock (and, when it carries a
+  // quantity, flag it for the "To be sorted" bucket so the stale amount gets
+  // updated). If it's not tracked yet, create it straight into the bucket to be
+  // placed. `existing` is the item the caller resolved the row to, if any.
+  const stockCheckedOffItem = (name: string, existing: Item | null | undefined) => {
     if (existing) {
       const tracksQty = existing.unit != null || existing.quantity != null;
       kitchen.setItemStatus(existing.id, tracksQty ? { status: 'ok', needsSorting: true, sortReason: 'restocked' } : { status: 'ok' });
-    } else if (name) {
-      kitchen.saveItem(null, {
-        name, category: 'grains', location: 'pantry', bin: '', store: null,
-        status: 'ok', dateType: null, date: null, quantity: null, unit: null,
-        needsSorting: true, sortReason: 'new',
-      });
+      return;
     }
+    if (!name.trim()) return;
+    kitchen.saveItem(null, {
+      name: name.trim(), category: 'grains', location: 'pantry', bin: '', store: null,
+      status: 'ok', dateType: null, date: null, quantity: null, unit: null,
+      needsSorting: true, sortReason: 'new',
+    });
+  };
+  // Restock row (an existing item that's low/out): resolves to that same item.
+  const toggleAuto = (id: string) => () => {
+    const it = kitchen.items.find((i) => i.id === id);
+    stockCheckedOffItem(it?.name || '', it);
+  };
+  // Hand-added grocery row: match by exact name so a slightly different spelling
+  // makes a fresh entry rather than silently merging into the wrong item.
+  const removeManual = (id: string) => () => {
+    const name = (kitchen.groceryExtras.find((g) => g.id === id)?.name || '').trim();
+    const existing = name ? kitchen.items.find((i) => i.name.trim().toLowerCase() === name.toLowerCase()) : null;
+    stockCheckedOffItem(name, existing);
     kitchen.removeManualGroceryItem(id);
+  };
+  // "For the Meal Plan" grocery row: resolve it the same fuzzy way the shopping
+  // math did, then send it to the kitchen / bucket and clear it off the list.
+  const checkPlanNeed = (key: string, label: string) => () => {
+    const match = matchIngredient({ ingId: '', text: label, name: key, quantity: '', amount: null, unit: null, category: null, trackable: true }, kitchen.items);
+    stockCheckedOffItem(label, match.matchedItem);
+    patch({ dismissedPlanNeeds: [...st.dismissedPlanNeeds, key] });
   };
   const setStatus = (status: Item['status']) => () => {
     if (st.selectedItemId) kitchen.setItemStatus(st.selectedItemId, { status });
@@ -605,7 +617,6 @@ export default function App() {
   const setShopWeek = () => kitchen.setShopWeek(shopWeekActive ? null : weekStart);
   const shopEntries = shopWeekActive ? kitchen.mealPlanEntries.filter((e) => weekDayIsos.includes(e.date)) : [];
   const mealPlanNeedRows = buildMealPlanGroceryRows(shopEntries, kitchen.recipes, kitchen.items);
-  const dismissPlanNeed = (key: string) => () => patch({ dismissedPlanNeeds: [...st.dismissedPlanNeeds, key] });
   const groceryPlanRows: SectionRow[] = mealPlanNeedRows
     .filter((n) => !st.dismissedPlanNeeds.includes(n.key))
     .map((n) => ({
@@ -613,7 +624,7 @@ export default function App() {
       name: n.buyText ? `${n.label} — ~${n.buyText}` : n.label,
       dotColor: accent, hasMeta: true, meta: 'For: ' + n.recipeNames.join(', '),
       hasBadge: false, badgeText: '', badgeStyle: null,
-      onCheck: dismissPlanNeed(n.key),
+      onCheck: checkPlanNeed(n.key, n.label),
     }));
   const changeWeek = (delta: number) => patch({ mealPlanWeek: addDays(weekStart, delta * 7) });
   const setPlanServings = (id: string, delta: number, current: number) => () => kitchen.updateMealPlanEntry(id, { servings: Math.max(1, current + delta) });
