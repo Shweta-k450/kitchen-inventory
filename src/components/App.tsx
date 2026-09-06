@@ -83,7 +83,7 @@ interface UiState {
   mealPlanWeek: string; // Monday ISO of the viewed week
   recipeSelectMode: boolean;
   recipeSelection: string[];
-  planBatch: { recipeId: string; date: string; servings: number }[];
+  planBatch: { recipeId: string; dates: string[]; servings: string }[];
   planReviewQueue: string[]; // recipe ids awaiting ingredient-amount review
   planEntryEditId: string | null; // meal-plan entry being edited (servings)
   dismissedPlanNeeds: string[]; // shopping-list rows ticked off this session
@@ -653,12 +653,21 @@ export default function App() {
     const defaultDay = weekDayIsos.includes(todayIso) ? todayIso : weekDayIsos[0];
     const rows = st.recipeSelection.map((rid) => {
       const r = kitchen.recipes.find((x) => x.id === rid);
-      return { recipeId: rid, date: defaultDay, servings: (r && r.servings) || 2 };
+      return { recipeId: rid, dates: [defaultDay], servings: String((r && r.servings) || 2) };
     });
     patch({ screen: 'planAdd', planBatch: rows });
   };
-  const updatePlanBatchRow = (recipeId: string, p: Partial<{ date: string; servings: number }>) => patch({
+  const updatePlanBatchRow = (recipeId: string, p: Partial<{ dates: string[]; servings: string }>) => patch({
     planBatch: st.planBatch.map((b) => (b.recipeId === recipeId ? { ...b, ...p } : b)),
+  });
+  const togglePlanBatchDay = (recipeId: string, iso: string) => patch({
+    planBatch: st.planBatch.map((b) => (b.recipeId === recipeId
+      ? { ...b, dates: b.dates.includes(iso) ? b.dates.filter((d) => d !== iso) : [...b.dates, iso] }
+      : b)),
+  });
+  const planBatchEntries = () => st.planBatch.flatMap((b) => {
+    const servings = Math.max(1, parseInt(b.servings, 10) || 1);
+    return b.dates.map((date) => ({ recipeId: b.recipeId, date, servings }));
   });
   const cancelPlanAdd = () => patch({ screen: 'recipes', tab: 'recipes', planBatch: [], planReviewQueue: [], recipeSelectMode: false, recipeSelection: [] });
 
@@ -688,7 +697,7 @@ export default function App() {
     });
   };
   const finishPlanFlow = () => {
-    kitchen.addMealPlanEntries(st.planBatch);
+    kitchen.addMealPlanEntries(planBatchEntries());
     patch({ screen: 'plan', tab: 'plan', planBatch: [], planReviewQueue: [], editingRecipeId: null, recipeSelectMode: false, recipeSelection: [] });
   };
   const advancePlanReview = (remaining: string[]) => {
@@ -696,7 +705,8 @@ export default function App() {
     else finishPlanFlow();
   };
   const commitPlan = () => {
-    const queue = st.planBatch.map((b) => b.recipeId).filter((rid) => {
+    if (!planBatchEntries().length) return;
+    const queue = st.planBatch.filter((b) => b.dates.length).map((b) => b.recipeId).filter((rid) => {
       const r = kitchen.recipes.find((x) => x.id === rid);
       return !!r && (r.ingredients || []).some((ing) => ing.trackable !== false && ing.amount == null);
     });
@@ -1074,27 +1084,27 @@ export default function App() {
             onConfirm={confirmCook}
           />
         );
-      case 'planAdd':
+      case 'planAdd': {
+        const totalEntries = planBatchEntries().length;
         return (
           <PlanAddScreen
             rows={st.planBatch.map((b) => {
               const r = kitchen.recipes.find((x) => x.id === b.recipeId);
               return {
-                recipeId: b.recipeId, name: r ? r.name : 'Recipe', date: b.date, servings: b.servings,
+                recipeId: b.recipeId, name: r ? r.name : 'Recipe', servings: b.servings, dayCount: b.dates.length,
                 dayChips: planDayChoices.map((iso) => {
                   const dl = dayLabel(iso);
-                  return { label: `${dl.weekday} ${dl.day}`, active: b.date === iso, onClick: () => updatePlanBatchRow(b.recipeId, { date: iso }) };
+                  return { label: `${dl.weekday} ${dl.day}`, active: b.dates.includes(iso), onClick: () => togglePlanBatchDay(b.recipeId, iso) };
                 }),
-                onServings: (e: ChangeEvent<HTMLInputElement>) => {
-                  const n = parseInt(e.target.value, 10);
-                  updatePlanBatchRow(b.recipeId, { servings: Number.isFinite(n) && n > 0 ? n : 1 });
-                },
+                onServings: (e: ChangeEvent<HTMLInputElement>) => updatePlanBatchRow(b.recipeId, { servings: e.target.value }),
               };
             })}
+            totalEntries={totalEntries}
             onCancel={cancelPlanAdd}
             onConfirm={commitPlan}
           />
         );
+      }
       case 'planReview':
         return (
           <RecipeAdd2Screen
@@ -2400,32 +2410,35 @@ function CookConfirmScreen(props: {
 }
 
 function PlanAddScreen(props: {
-  rows: { recipeId: string; name: string; date: string; servings: number; dayChips: { label: string; active: boolean; onClick: () => void }[]; onServings: (e: ChangeEvent<HTMLInputElement>) => void }[];
+  rows: { recipeId: string; name: string; servings: string; dayCount: number; dayChips: { label: string; active: boolean; onClick: () => void }[]; onServings: (e: ChangeEvent<HTMLInputElement>) => void }[];
+  totalEntries: number;
   onCancel: () => void; onConfirm: () => void;
 }) {
-  const { rows, onCancel, onConfirm } = props;
+  const { rows, totalEntries, onCancel, onConfirm } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
         <BackLink label="Cancel" onClick={onCancel} />
         <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Add to Meal Plan</div>
-        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Set a day and servings for each. You may be asked to confirm ingredient amounts next.</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Tap one or more days for each recipe. You may be asked to confirm ingredient amounts next.</div>
         {rows.map((row) => (
           <div key={row.recipeId} className="rounded-2xl p-3.5 mt-3" style={{ background: card, border: `1.5px solid ${border}` }}>
             <div className="text-[14.5px] font-semibold" style={{ color: text }}>{row.name}</div>
-            <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Day</div>
+            <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Days{row.dayCount === 0 ? ' — pick at least one' : ''}</div>
             <div className="noscroll flex gap-1.5 overflow-x-auto pb-1">
               {row.dayChips.map((c) => (
                 <Chip key={c.label} label={c.label} style={c.active ? { background: accent, color: 'white', border: 'none', fontWeight: 700 } : { background: 'white', color: text, border: `1.5px solid ${border}`, fontWeight: 500 }} onClick={c.onClick} />
               ))}
             </div>
             <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Servings to make</div>
-            <input value={String(row.servings)} onChange={row.onServings} inputMode="numeric" className="w-24 h-[42px] rounded-[10px] px-3 text-sm outline-none" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
+            <input value={row.servings} onChange={row.onServings} inputMode="numeric" placeholder="e.g. 4" className="w-24 h-[42px] rounded-[10px] px-3 text-sm outline-none" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
           </div>
         ))}
       </div>
       <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
-        <button onClick={onConfirm} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold" style={{ background: accent }}>Add {rows.length} to plan</button>
+        <button onClick={onConfirm} disabled={totalEntries === 0} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold disabled:opacity-50" style={{ background: accent }}>
+          {totalEntries === 0 ? 'Add to plan' : `Add ${totalEntries} to plan`}
+        </button>
       </div>
     </div>
   );
