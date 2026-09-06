@@ -178,7 +178,7 @@ export default function SwipeBack({
         <div className="absolute inset-0" aria-hidden>
           <div
             className="absolute inset-0 pointer-events-none"
-            style={{ transform: `translateX(${-PARALLAX * w * (1 - progress)}px)`, transition }}
+            style={{ background: '#fff', transform: `translateX(${-PARALLAX * w * (1 - progress)}px)`, transition }}
           >
             {back}
           </div>
@@ -195,6 +195,7 @@ export default function SwipeBack({
       <div
         className="absolute inset-0"
         style={{
+          background: '#fff',
           transform: `translateX(${dx}px)`,
           transition,
           willChange: 'transform',
