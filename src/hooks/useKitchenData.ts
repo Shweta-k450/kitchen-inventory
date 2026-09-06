@@ -8,7 +8,8 @@ import { getDb, firebaseConfigured } from '@/lib/firebase';
 import { INITIAL_ITEMS } from '@/lib/constants';
 import type { Item, Recipe, ManualGroceryItem, MealPlanEntry, PreparedFood } from '@/lib/types';
 
-const PLAN_SETTINGS_ID = '__settings__';
+// Firestore rejects document IDs matching /__.*__/, so this can't be "__settings__".
+const PLAN_SETTINGS_ID = 'settings';
 
 export type SyncStatus = 'connecting' | 'synced' | 'unavailable' | 'error';
 
@@ -80,7 +81,15 @@ export function useKitchenData() {
             shopWeek = s.shopWeekOf ?? null;
           } else {
             const e = d.data() as Omit<MealPlanEntry, 'id'>;
-            entries.push({ id: d.id, recipeId: e.recipeId, date: e.date, servings: e.servings });
+            entries.push({
+              id: d.id,
+              recipeId: e.recipeId,
+              date: e.date,
+              servings: e.servings,
+              cooked: e.cooked ?? false,
+              cookedAt: e.cookedAt ?? null,
+              preparedId: e.preparedId ?? null,
+            });
           }
         });
         setMealPlanEntries(entries);
@@ -293,7 +302,7 @@ export function useKitchenData() {
       let shopWeek: string | null = null;
       planSnap.docs.forEach((d) => {
         if (d.id === PLAN_SETTINGS_ID) shopWeek = (d.data() as { shopWeekOf?: string | null }).shopWeekOf ?? null;
-        else { const e = d.data() as Omit<MealPlanEntry, 'id'>; planEntries.push({ id: d.id, recipeId: e.recipeId, date: e.date, servings: e.servings }); }
+        else { const e = d.data() as Omit<MealPlanEntry, 'id'>; planEntries.push({ id: d.id, recipeId: e.recipeId, date: e.date, servings: e.servings, cooked: e.cooked ?? false, cookedAt: e.cookedAt ?? null, preparedId: e.preparedId ?? null }); }
       });
       setMealPlanEntries(planEntries);
       setMealPlanShopWeek(shopWeek);
