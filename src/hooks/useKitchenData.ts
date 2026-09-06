@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { getDb, firebaseConfigured } from '@/lib/firebase';
 import { INITIAL_ITEMS } from '@/lib/constants';
-import type { Item, Recipe, ManualGroceryItem, MealPlanEntry } from '@/lib/types';
+import type { Item, Recipe, ManualGroceryItem, MealPlanEntry, PreparedFood } from '@/lib/types';
 
 const PLAN_SETTINGS_ID = '__settings__';
 
@@ -18,6 +18,7 @@ export function useKitchenData() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [mealPlanEntries, setMealPlanEntries] = useState<MealPlanEntry[]>([]);
   const [mealPlanShopWeek, setMealPlanShopWeek] = useState<string | null>(null);
+  const [preparedFood, setPreparedFood] = useState<PreparedFood[]>([]);
   const [status, setStatus] = useState<SyncStatus>(firebaseConfigured ? 'connecting' : 'unavailable');
   const seededRef = useRef(false);
 
@@ -88,11 +89,23 @@ export function useKitchenData() {
       () => {}
     );
 
+    const unsubPrepared = onSnapshot(
+      collection(db, 'preparedFood'),
+      (snap) => {
+        setPreparedFood(snap.docs.map((d) => {
+          const p = d.data() as Omit<PreparedFood, 'id'>;
+          return { id: d.id, ...p, deductions: p.deductions || [], eaten: p.eaten || [] };
+        }));
+      },
+      () => {}
+    );
+
     return () => {
       unsubItems();
       unsubGrocery();
       unsubRecipes();
       unsubPlan();
+      unsubPrepared();
     };
   }, []);
 
@@ -195,6 +208,50 @@ export function useKitchenData() {
     setDoc(doc(db, 'mealPlan', PLAN_SETTINGS_ID), { shopWeekOf: mondayIso }).catch(() => {});
   }, []);
 
+  const updatePreparedFood = useCallback((id: string, patch: Partial<PreparedFood>) => {
+    const db = getDb();
+    if (!db) return;
+    updateDoc(doc(db, 'preparedFood', id), patch).catch(() => {});
+  }, []);
+
+  const removePreparedFood = useCallback((id: string) => {
+    const db = getDb();
+    if (!db) return;
+    deleteDoc(doc(db, 'preparedFood', id)).catch(() => {});
+  }, []);
+
+  /** Cook a planned recipe: one batch creates the dish, patches the used items, and marks the entry cooked. */
+  const cookRecipe = useCallback((args: {
+    entryId: string;
+    cookedAt: string;
+    prepared: Omit<PreparedFood, 'id'>;
+    itemPatches: { id: string; patch: Partial<Item> }[];
+  }) => {
+    const db = getDb();
+    if (!db) return;
+    const batch = writeBatch(db);
+    const preparedId = 'pf' + Date.now();
+    batch.set(doc(db, 'preparedFood', preparedId), args.prepared);
+    args.itemPatches.forEach((p) => batch.update(doc(db, 'items', p.id), p.patch));
+    batch.update(doc(db, 'mealPlan', args.entryId), { cooked: true, cookedAt: args.cookedAt, preparedId });
+    batch.commit().catch(() => {});
+  }, []);
+
+  /** Reverse a cook: delete the dish, restore the items, un-mark the entry. */
+  const undoCook = useCallback((args: {
+    entryId: string | null;
+    preparedId: string;
+    itemPatches: { id: string; patch: Partial<Item> }[];
+  }) => {
+    const db = getDb();
+    if (!db) return;
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'preparedFood', args.preparedId));
+    args.itemPatches.forEach((p) => batch.update(doc(db, 'items', p.id), p.patch));
+    if (args.entryId) batch.update(doc(db, 'mealPlan', args.entryId), { cooked: false, cookedAt: null, preparedId: null });
+    batch.commit().catch(() => {});
+  }, []);
+
   /**
    * Manually re-fetches everything from Firestore right now, instead of waiting on the
    * live onSnapshot listeners. The listeners should already push updates in real time
@@ -234,17 +291,23 @@ export function useKitchenData() {
       });
       setMealPlanEntries(planEntries);
       setMealPlanShopWeek(shopWeek);
+      const prepSnap = await getDocs(collection(db, 'preparedFood'));
+      setPreparedFood(prepSnap.docs.map((d) => {
+        const p = d.data() as Omit<PreparedFood, 'id'>;
+        return { id: d.id, ...p, deductions: p.deductions || [], eaten: p.eaten || [] };
+      }));
     } catch {
-      /* meal plan unavailable — leave prior state */
+      /* meal plan / prepared food unavailable — leave prior state */
     }
   }, []);
 
   return {
-    items, groceryExtras, recipes, mealPlanEntries, mealPlanShopWeek, status,
+    items, groceryExtras, recipes, mealPlanEntries, mealPlanShopWeek, preparedFood, status,
     setItemStatus, updateItem, saveItem, removeItem, addReceiptItems,
     addManualGroceryItem, removeManualGroceryItem,
     saveRecipe, deleteRecipe,
     addMealPlanEntry, addMealPlanEntries, updateMealPlanEntry, removeMealPlanEntry, setShopWeek,
+    updatePreparedFood, removePreparedFood, cookRecipe, undoCook,
     refresh,
   };
 }

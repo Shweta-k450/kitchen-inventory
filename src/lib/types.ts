@@ -61,6 +61,30 @@ export interface MealPlanEntry {
   recipeId: string;
   date: string; // 'YYYY-MM-DD'
   servings: number; // servings to make that day
+  cooked?: boolean;
+  cookedAt?: string | null; // 'YYYY-MM-DD' the day it was cooked
+  preparedId?: string | null; // links to the PreparedFood record it produced
+}
+
+/** Something the cook-off subtracted from inventory, kept so a cook can be undone. */
+export interface Deduction {
+  itemId: string;
+  amount: number | null; // subtracted from item.quantity in `unit`; null = status-only nudge
+  unit: string | null;
+  prevStatus: ItemStatus | null; // set when the cook also changed the item's status
+}
+
+/** A cooked dish sitting in the fridge, tracked by servings. */
+export interface PreparedFood {
+  id: string;
+  recipeId: string | null;
+  name: string;
+  madeOn: string; // 'YYYY-MM-DD'
+  servingsMade: number;
+  useBy: string | null; // 'YYYY-MM-DD'
+  planEntryId: string | null;
+  deductions: Deduction[];
+  eaten: { date: string; servings: number }[];
 }
 
 export interface ManualGroceryItem {

@@ -73,6 +73,9 @@ export const UNITS = ['count', 'kg', 'g', 'L', 'mL', 'lb', 'oz', 'pack'];
 // Units allowed on recipe ingredients — a superset of UNITS with cooking measures.
 export const RECIPE_UNITS = ['count', 'g', 'kg', 'mL', 'L', 'tsp', 'tbsp', 'cup', 'oz', 'lb', 'clove', 'slice', 'pinch', 'pack'];
 
+// Default shelf life for a cooked dish (cook date + this many days).
+export const LEFTOVER_DAYS = 3;
+
 export const INITIAL_ITEMS: Item[] = [
   { id: 'p1', name: 'Basmati Rice', category: 'grains', location: 'pantry', bin: 'Dry Ingredients Shelf', store: 'indian-store', status: 'ok', dateType: null, date: null },
   { id: 'p2', name: 'Toor Dal', category: 'lentils', location: 'pantry', bin: 'Indian Pantry Bin', store: 'indian-store', status: 'low', dateType: null, date: null },

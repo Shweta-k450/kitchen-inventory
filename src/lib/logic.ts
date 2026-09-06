@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { CATEGORIES, CATEGORY_MAP, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS } from './constants';
-import type { Item, LocationId, Ingredient, Recipe } from './types';
+import type { Item, ItemStatus, LocationId, Ingredient, Recipe, PreparedFood, Deduction } from './types';
 
 export function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
@@ -398,6 +398,101 @@ function fromCanonical(value: number, dim: Dim): string {
   }
   if (value >= 1000) return `${Math.ceil((value / 1000) * 4) / 4} L`;
   return `${Math.max(10, Math.ceil(value / 10) * 10)} mL`;
+}
+
+function canonToUnit(value: number, unit: string): number {
+  if (unit in MASS_G) return value / MASS_G[unit];
+  if (unit in VOL_ML) return value / VOL_ML[unit];
+  return value;
+}
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Convert `amount` of `fromUnit` into `toUnit`; null when the dimensions don't match. */
+export function convertAmount(amount: number, fromUnit: string | null | undefined, toUnit: string | null | undefined): number | null {
+  const c = toCanonical(amount, fromUnit);
+  if (!c || unitDim(toUnit) !== c.dim) return null;
+  return round2(canonToUnit(c.value, toUnit as string));
+}
+
+// ---------- cook-off ----------
+export interface CookEffect {
+  itemId: string;
+  itemName: string;
+  label: string; // ingredient name(s) as shown
+  fromText: string;
+  toText: string;
+  patch: { quantity?: number; status?: ItemStatus };
+  deduction: Deduction;
+}
+
+/**
+ * Work out what cooking `recipe` at `servingsToMake` would do to inventory:
+ * subtract exact amounts where units line up, run items to Out at zero, and
+ * otherwise nudge a still-"ok" item to "low". Ingredients with no matching item
+ * come back in `unmatched` (informational only).
+ */
+export function planCookEffects(recipe: Recipe, servingsToMake: number, items: Item[]): { effects: CookEffect[]; unmatched: string[] } {
+  const scale = recipe.servings && recipe.servings > 0 ? servingsToMake / recipe.servings : 1;
+  const unmatched: string[] = [];
+  const byItem = new Map<string, { item: Item; labels: string[]; need: { dim: Dim; value: number } | null; uncomputable: boolean }>();
+
+  (recipe.ingredients || []).forEach((ing) => {
+    if (ing.trackable === false) return;
+    const m = matchIngredient(ing, items);
+    const item = m.matchedItem;
+    const label = titleCaseWords(ing.name || ing.text);
+    if (!item) { unmatched.push(label); return; }
+    let g = byItem.get(item.id);
+    if (!g) { g = { item, labels: [], need: null, uncomputable: false }; byItem.set(item.id, g); }
+    if (!g.labels.includes(label)) g.labels.push(label);
+    const canon = ing.amount != null && ing.unit ? toCanonical(ing.amount * scale, ing.unit) : null;
+    if (!canon || item.quantity == null || !item.unit || unitDim(item.unit) !== canon.dim) { g.uncomputable = true; return; }
+    g.need = g.need ? { dim: canon.dim, value: g.need.value + canon.value } : canon;
+  });
+
+  const effects: CookEffect[] = [];
+  for (const g of byItem.values()) {
+    const { item, labels } = g;
+    const label = labels.join(', ');
+    if (g.need && item.quantity != null && item.unit) {
+      const removed = round2(Math.min(item.quantity, canonToUnit(g.need.value, item.unit)));
+      const newQ = round2(Math.max(0, item.quantity - removed));
+      if (newQ <= 0.001) {
+        effects.push({
+          itemId: item.id, itemName: item.name, label,
+          fromText: formatQty(item.quantity, item.unit), toText: 'Out of stock',
+          patch: { quantity: 0, status: 'out' },
+          deduction: { itemId: item.id, amount: removed, unit: item.unit, prevStatus: item.status },
+        });
+      } else {
+        effects.push({
+          itemId: item.id, itemName: item.name, label,
+          fromText: formatQty(item.quantity, item.unit), toText: formatQty(newQ, item.unit),
+          patch: { quantity: newQ },
+          deduction: { itemId: item.id, amount: removed, unit: item.unit, prevStatus: null },
+        });
+      }
+    } else if (item.status === 'ok') {
+      effects.push({
+        itemId: item.id, itemName: item.name, label,
+        fromText: 'In stock', toText: 'Running low',
+        patch: { status: 'low' },
+        deduction: { itemId: item.id, amount: null, unit: null, prevStatus: 'ok' },
+      });
+    }
+  }
+  return { effects, unmatched };
+}
+
+export function servingsLeft(p: PreparedFood): number {
+  return Math.max(0, p.servingsMade - (p.eaten || []).reduce((s, e) => s + e.servings, 0));
+}
+
+export function preparedFreshness(p: PreparedFood, todayIso: string): 'fresh' | 'soon' | 'past' {
+  if (!p.useBy) return 'fresh';
+  if (todayIso > p.useBy) return 'past';
+  if (todayIso >= addDays(p.useBy, -1)) return 'soon';
+  return 'fresh';
 }
 
 /** Monday (local) of the week containing `d`, as 'YYYY-MM-DD'. */

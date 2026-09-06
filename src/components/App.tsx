@@ -3,7 +3,7 @@
 import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import { useKitchenData } from '@/hooks/useKitchenData';
 import {
-  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS,
+  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS, LEFTOVER_DAYS,
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
@@ -12,10 +12,11 @@ import {
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
   buildMealPlanGroceryRows, mondayOf, isoDate, addDays, weekDates, weekRangeLabel, dayLabel,
-  type Section, type SectionRow,
+  planCookEffects, servingsLeft, preparedFreshness,
+  type Section, type SectionRow, type CookEffect,
 } from '@/lib/logic';
 import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi } from '@/lib/apiClient';
-import type { Item, LocationId, Ingredient, Recipe } from '@/lib/types';
+import type { Item, LocationId, Ingredient, Recipe, PreparedFood } from '@/lib/types';
 import { Chip, BackLink } from './Chip';
 import PullToRefresh from './PullToRefresh';
 import SwipeBack from './SwipeBack';
@@ -24,7 +25,7 @@ type Screen =
   | 'home' | 'location' | 'pantryBin' | 'itemDetail' | 'add1' | 'add2' | 'add3'
   | 'receiptScan' | 'receiptReview' | 'grocery' | 'search'
   | 'recipes' | 'recipeDetail' | 'recipeAdd1' | 'recipeAdd2' | 'recipeAdd3'
-  | 'plan' | 'planAdd' | 'planReview';
+  | 'plan' | 'planAdd' | 'planReview' | 'cookConfirm';
 
 interface AddDraft {
   name: string; category: string | null; location: LocationId | null; bin: string;
@@ -81,6 +82,8 @@ interface UiState {
   planReviewQueue: string[]; // recipe ids awaiting ingredient-amount review
   planEntryEditId: string | null; // meal-plan entry being edited (servings)
   dismissedPlanNeeds: string[]; // shopping-list rows ticked off this session
+  planView: 'week' | 'fridge';
+  cookEntryId: string | null; // meal-plan entry being confirmed for cooking
 }
 
 const initialState: UiState = {
@@ -94,7 +97,7 @@ const initialState: UiState = {
   recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [], expandedRecipeIngredientId: null,
   recipePhotoDataUrl: '', recipePhotoStatus: 'idle', recipeServingsDraft: '', recipeSaveStatus: 'idle',
   mealPlanWeek: '', recipeSelectMode: false, recipeSelection: [], planBatch: [], planReviewQueue: [], planEntryEditId: null,
-  dismissedPlanNeeds: [],
+  dismissedPlanNeeds: [], planView: 'week', cookEntryId: null,
 };
 
 const card = '#f9f6f3';
@@ -487,11 +490,17 @@ export default function App() {
     decoratedRecipes.forEach((r) => m.set(r.id, r));
     return m;
   }, [decoratedRecipes]);
-  const planEntriesByDate: Record<string, { id: string; recipeId: string; date: string; servings: number; recipeName: string; ready: boolean }[]> = {};
+  type PlanRow = { id: string; recipeId: string; date: string; servings: number; recipeName: string; ready: boolean; cooked: boolean; preparedId: string | null; canUndoCook: boolean };
+  const preparedById = new Map(kitchen.preparedFood.map((p) => [p.id, p] as [string, PreparedFood]));
+  const planEntriesByDate: Record<string, PlanRow[]> = {};
   kitchen.mealPlanEntries.forEach((e) => {
     const r = decoratedRecipeById.get(e.recipeId);
+    const prep = e.preparedId ? preparedById.get(e.preparedId) : undefined;
     (planEntriesByDate[e.date] = planEntriesByDate[e.date] || []).push({
-      ...e, recipeName: r ? r.name : 'Deleted recipe', ready: r ? r.readiness.ready : false,
+      id: e.id, recipeId: e.recipeId, date: e.date, servings: e.servings,
+      recipeName: r ? r.name : 'Deleted recipe', ready: r ? r.readiness.ready : false,
+      cooked: !!e.cooked, preparedId: e.preparedId ?? null,
+      canUndoCook: !!prep && (prep.eaten || []).length === 0,
     });
   });
   const shopWeekActive = kitchen.mealPlanShopWeek === weekStart;
@@ -511,6 +520,70 @@ export default function App() {
   const changeWeek = (delta: number) => patch({ mealPlanWeek: addDays(weekStart, delta * 7) });
   const setPlanServings = (id: string, delta: number, current: number) => () => kitchen.updateMealPlanEntry(id, { servings: Math.max(1, current + delta) });
   const removePlanEntry = (id: string) => () => kitchen.removeMealPlanEntry(id);
+  const setPlanView = (v: 'week' | 'fridge') => patch({ planView: v });
+
+  // ---------- meal plan: cook-off + fridge ----------
+  const preparedActive = kitchen.preparedFood
+    .map((p) => ({ p, left: servingsLeft(p), fresh: preparedFreshness(p, todayIso) }))
+    .filter((x) => x.left > 0)
+    .sort((a, b) => (a.p.useBy || '9999').localeCompare(b.p.useBy || '9999'));
+  const eatenThisWeek: { date: string; label: string; items: { name: string; servings: number }[] }[] = weekDayIsos
+    .map((iso) => {
+      const items: { name: string; servings: number }[] = [];
+      kitchen.preparedFood.forEach((p) => (p.eaten || []).forEach((e) => { if (e.date === iso) items.push({ name: p.name, servings: e.servings }); }));
+      const dl = dayLabel(iso);
+      return { date: iso, label: `${dl.weekday} ${dl.day}`, items };
+    })
+    .filter((d) => d.items.length > 0);
+
+  const startCook = (entryId: string) => () => patch({ screen: 'cookConfirm', cookEntryId: entryId });
+  const cancelCook = () => patch({ screen: 'plan', cookEntryId: null });
+  const cookEntry = kitchen.mealPlanEntries.find((e) => e.id === st.cookEntryId) || null;
+  const cookRecipeObj = cookEntry ? kitchen.recipes.find((r) => r.id === cookEntry.recipeId) || null : null;
+  const cookPlan = cookEntry && cookRecipeObj ? planCookEffects(cookRecipeObj, cookEntry.servings, kitchen.items) : { effects: [] as CookEffect[], unmatched: [] as string[] };
+  const confirmCook = () => {
+    if (!cookEntry || !cookRecipeObj) return;
+    const madeOn = todayIso;
+    kitchen.cookRecipe({
+      entryId: cookEntry.id,
+      cookedAt: madeOn,
+      prepared: {
+        recipeId: cookRecipeObj.id, name: cookRecipeObj.name, madeOn,
+        servingsMade: cookEntry.servings, useBy: addDays(madeOn, LEFTOVER_DAYS),
+        planEntryId: cookEntry.id, deductions: cookPlan.effects.map((x) => x.deduction), eaten: [],
+      },
+      itemPatches: cookPlan.effects.map((x) => ({ id: x.itemId, patch: x.patch })),
+    });
+    patch({ screen: 'plan', tab: 'plan', cookEntryId: null, planView: 'fridge' });
+  };
+  const undoCookEntry = (preparedId: string) => () => {
+    const prep = kitchen.preparedFood.find((p) => p.id === preparedId);
+    if (!prep || (prep.eaten || []).length > 0) return;
+    const patches = new Map<string, Partial<Item>>();
+    prep.deductions.forEach((d) => {
+      const cur = kitchen.items.find((i) => i.id === d.itemId);
+      if (!cur) return;
+      const p: Partial<Item> = patches.get(d.itemId) || {};
+      if (d.amount != null && d.unit) p.quantity = Math.round(((p.quantity ?? cur.quantity ?? 0) + d.amount) * 100) / 100;
+      if (d.prevStatus) p.status = d.prevStatus;
+      patches.set(d.itemId, p);
+    });
+    kitchen.undoCook({
+      entryId: prep.planEntryId, preparedId,
+      itemPatches: [...patches.entries()].map(([id, p]) => ({ id, patch: p })),
+    });
+  };
+  const eatServing = (preparedId: string, n: number) => () => {
+    const prep = kitchen.preparedFood.find((p) => p.id === preparedId);
+    if (!prep) return;
+    kitchen.updatePreparedFood(preparedId, { eaten: [...(prep.eaten || []), { date: todayIso, servings: n }] });
+  };
+  const undoLastEat = (preparedId: string) => () => {
+    const prep = kitchen.preparedFood.find((p) => p.id === preparedId);
+    if (!prep || !(prep.eaten || []).length) return;
+    kitchen.updatePreparedFood(preparedId, { eaten: (prep.eaten || []).slice(0, -1) });
+  };
+  const setPreparedUseBy = (preparedId: string) => (e: ChangeEvent<HTMLInputElement>) => kitchen.updatePreparedFood(preparedId, { useBy: e.target.value || null });
 
   // ---------- meal plan: add-from-list flow ----------
   const planDayChoices = [...weekDayIsos, ...weekDates(addDays(weekStart, 7))];
@@ -698,6 +771,7 @@ export default function App() {
     recipeAdd3: backToRecipeAdd2,
     search: closeSearch,
     planAdd: cancelPlanAdd,
+    cookConfirm: cancelCook,
   };
   const swipeBackHandler: (() => void) | null = swipeBackHandlers[st.screen] ?? null;
 
@@ -716,6 +790,7 @@ export default function App() {
     recipeAdd3: 'recipeAdd2',
     search: st.searchReturnScreen,
     planAdd: 'recipes',
+    cookConfirm: 'plan',
   };
   const swipeBackTarget: Screen | null = swipeBackHandler ? (swipeBackTargets[st.screen] ?? null) : null;
 
@@ -894,14 +969,18 @@ export default function App() {
       case 'plan':
         return (
           <PlanScreen
+            view={st.planView}
+            onSetView={setPlanView}
             weekLabel={weekRangeLabel(weekStart)}
             days={weekDayIsos.map((iso) => ({
               iso, ...dayLabel(iso), isToday: iso === todayIso,
               entries: (planEntriesByDate[iso] || []).map((e) => ({
-                id: e.id, name: e.recipeName, servings: e.servings, ready: e.ready,
+                id: e.id, name: e.recipeName, servings: e.servings, ready: e.ready, cooked: e.cooked,
                 onInc: setPlanServings(e.id, 1, e.servings), onDec: setPlanServings(e.id, -1, e.servings),
                 onRemove: removePlanEntry(e.id),
                 onOpen: openRecipe('plan')(e.recipeId),
+                onCook: e.cooked ? null : startCook(e.id),
+                onUndoCook: e.cooked && e.canUndoCook && e.preparedId ? undoCookEntry(e.preparedId) : null,
               })),
             }))}
             hasAnyEntries={kitchen.mealPlanEntries.length > 0}
@@ -912,6 +991,24 @@ export default function App() {
             needRows={groceryPlanRows.map((r) => ({ id: r.id, text: r.name, sub: r.meta || '' }))}
             onGoGrocery={goGrocery}
             onGoRecipes={goRecipesTab}
+            fridge={preparedActive.map((x) => ({
+              id: x.p.id, name: x.p.name, madeOn: x.p.madeOn, servingsLeft: x.left, servingsMade: x.p.servingsMade,
+              useBy: x.p.useBy || '', fresh: x.fresh, hasEaten: (x.p.eaten || []).length > 0,
+              onEat1: eatServing(x.p.id, 1), onEat2: eatServing(x.p.id, 2), onUndoEat: undoLastEat(x.p.id),
+              onUseByChange: setPreparedUseBy(x.p.id),
+            }))}
+            eatenThisWeek={eatenThisWeek}
+          />
+        );
+      case 'cookConfirm':
+        return (
+          <CookConfirmScreen
+            name={cookRecipeObj ? cookRecipeObj.name : 'Recipe'}
+            servings={cookEntry ? cookEntry.servings : 0}
+            effects={cookPlan.effects.map((x) => ({ label: x.label, itemName: x.itemName, fromText: x.fromText, toText: x.toText }))}
+            unmatched={cookPlan.unmatched}
+            onCancel={cancelCook}
+            onConfirm={confirmCook}
           />
         );
       case 'planAdd':
@@ -1944,85 +2041,200 @@ function RecipeAdd3Screen(props: {
   );
 }
 
+interface PlanEntryRow {
+  id: string; name: string; servings: number; ready: boolean; cooked: boolean;
+  onInc: () => void; onDec: () => void; onRemove: () => void; onOpen: () => void;
+  onCook: (() => void) | null; onUndoCook: (() => void) | null;
+}
+interface FridgeRow {
+  id: string; name: string; madeOn: string; servingsLeft: number; servingsMade: number;
+  useBy: string; fresh: 'fresh' | 'soon' | 'past'; hasEaten: boolean;
+  onEat1: () => void; onEat2: () => void; onUndoEat: () => void; onUseByChange: (e: ChangeEvent<HTMLInputElement>) => void;
+}
+
 function PlanScreen(props: {
+  view: 'week' | 'fridge'; onSetView: (v: 'week' | 'fridge') => void;
   weekLabel: string;
-  days: { iso: string; weekday: string; day: string; isToday: boolean; entries: { id: string; name: string; servings: number; ready: boolean; onInc: () => void; onDec: () => void; onRemove: () => void; onOpen: () => void }[] }[];
+  days: { iso: string; weekday: string; day: string; isToday: boolean; entries: PlanEntryRow[] }[];
   hasAnyEntries: boolean;
   shopWeekActive: boolean; onToggleShop: () => void;
   onPrevWeek: () => void; onNextWeek: () => void;
   needRows: { id: string; text: string; sub: string }[];
   onGoGrocery: () => void; onGoRecipes: () => void;
+  fridge: FridgeRow[];
+  eatenThisWeek: { date: string; label: string; items: { name: string; servings: number }[] }[];
 }) {
-  const { weekLabel, days, hasAnyEntries, shopWeekActive, onToggleShop, onPrevWeek, onNextWeek, needRows, onGoGrocery, onGoRecipes } = props;
+  const { view, onSetView, weekLabel, days, hasAnyEntries, shopWeekActive, onToggleShop, onPrevWeek, onNextWeek, needRows, onGoGrocery, onGoRecipes, fridge, eatenThisWeek } = props;
   const weekHasEntries = days.some((d) => d.entries.length);
+  const freshColor = (f: 'fresh' | 'soon' | 'past') => (f === 'past' ? errorColor : f === 'soon' ? '#7e4c25' : '#3d6218');
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-6 pb-3 shrink-0">
         <div className="text-[26px] font-extrabold" style={{ color: text }}>Meal Plan</div>
-        <div className="flex items-center justify-between mt-3">
-          <button onClick={onPrevWeek} aria-label="Previous week" className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: section }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
-          </button>
-          <div className="text-[14.5px] font-bold" style={{ color: text }}>{weekLabel}</div>
-          <button onClick={onNextWeek} aria-label="Next week" className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: section }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
-          </button>
-        </div>
-        <div onClick={onToggleShop} className="flex items-center justify-between mt-3 px-3.5 py-2.5 rounded-xl cursor-pointer" style={{ background: shopWeekActive ? accent : card, border: `1.5px solid ${shopWeekActive ? accent : border}` }}>
-          <div className="text-[13.5px] font-bold" style={{ color: shopWeekActive ? 'white' : text }}>Shop for this week</div>
-          <div className="w-10 h-6 rounded-full flex items-center px-0.5" style={{ background: shopWeekActive ? 'rgba(255,255,255,0.35)' : '#d8d2c2' }}>
-            <div className="w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: shopWeekActive ? 'translateX(16px)' : 'translateX(0)' }} />
-          </div>
-        </div>
-      </div>
-      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
-        {!hasAnyEntries && (
-          <div className="text-center py-14 px-5">
-            <div className="text-sm" style={{ color: muted }}>Nothing planned yet.</div>
-            <button onClick={onGoRecipes} className="mt-4 px-5 py-2.5 rounded-xl text-white text-sm font-bold" style={{ background: accent }}>Pick recipes</button>
-          </div>
-        )}
-        {hasAnyEntries && days.map((d) => (
-          <div key={d.iso} className="mt-3.5">
-            <div className="text-[12.5px] font-bold uppercase tracking-wide mb-1.5" style={{ color: d.isToday ? accent : muted }}>
-              {d.weekday} {d.day}{d.isToday ? ' · Today' : ''}
+        <div className="flex gap-1.5 mt-3 p-1 rounded-xl" style={{ background: section }}>
+          {(['week', 'fridge'] as const).map((v) => (
+            <div key={v} onClick={() => onSetView(v)} className="flex-1 text-center py-1.5 rounded-lg text-[13px] font-bold cursor-pointer" style={view === v ? { background: '#fff', color: accent } : { color: muted }}>
+              {v === 'week' ? 'This Week' : 'In the Fridge'}
             </div>
-            {d.entries.length === 0 && <div className="text-[12.5px] px-1 py-1" style={{ color: '#a6a496' }}>—</div>}
-            {d.entries.map((e) => (
-              <div key={e.id} className="flex items-center gap-2.5 rounded-2xl px-3.5 py-3 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
-                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: e.ready ? '#3d6218' : errorColor }} />
-                <div onClick={e.onOpen} className="flex-1 min-w-0 cursor-pointer">
-                  <div className="text-[14px] font-semibold truncate" style={{ color: text }}>{e.name}</div>
-                  <div className="text-[12px] mt-0.5" style={{ color: muted }}>{e.ready ? 'Ready to cook' : 'Missing ingredients'}</div>
+          ))}
+        </div>
+        {view === 'week' && (
+          <>
+            <div className="flex items-center justify-between mt-3">
+              <button onClick={onPrevWeek} aria-label="Previous week" className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: section }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+              </button>
+              <div className="text-[14.5px] font-bold" style={{ color: text }}>{weekLabel}</div>
+              <button onClick={onNextWeek} aria-label="Next week" className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: section }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+              </button>
+            </div>
+            <div onClick={onToggleShop} className="flex items-center justify-between mt-3 px-3.5 py-2.5 rounded-xl cursor-pointer" style={{ background: shopWeekActive ? accent : card, border: `1.5px solid ${shopWeekActive ? accent : border}` }}>
+              <div className="text-[13.5px] font-bold" style={{ color: shopWeekActive ? 'white' : text }}>Shop for this week</div>
+              <div className="w-10 h-6 rounded-full flex items-center px-0.5" style={{ background: shopWeekActive ? 'rgba(255,255,255,0.35)' : '#d8d2c2' }}>
+                <div className="w-5 h-5 rounded-full bg-white" style={{ transform: shopWeekActive ? 'translateX(16px)' : 'translateX(0)', transition: 'transform 150ms ease' }} />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
+        {view === 'week' && (
+          <>
+            {!hasAnyEntries && (
+              <div className="text-center py-14 px-5">
+                <div className="text-sm" style={{ color: muted }}>Nothing planned yet.</div>
+                <button onClick={onGoRecipes} className="mt-4 px-5 py-2.5 rounded-xl text-white text-sm font-bold" style={{ background: accent }}>Pick recipes</button>
+              </div>
+            )}
+            {hasAnyEntries && days.map((d) => (
+              <div key={d.iso} className="mt-3.5">
+                <div className="text-[12.5px] font-bold uppercase tracking-wide mb-1.5" style={{ color: d.isToday ? accent : muted }}>
+                  {d.weekday} {d.day}{d.isToday ? ' · Today' : ''}
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button onClick={e.onDec} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>−</button>
-                  <div className="text-[12.5px] font-bold w-14 text-center" style={{ color: text }}>{e.servings} srv</div>
-                  <button onClick={e.onInc} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>+</button>
+                {d.entries.length === 0 && <div className="text-[12.5px] px-1 py-1" style={{ color: '#a6a496' }}>—</div>}
+                {d.entries.map((e) => (
+                  <div key={e.id} className="rounded-2xl px-3.5 py-3 mb-2" style={{ background: card, border: `1.5px solid ${border}`, opacity: e.cooked ? 0.7 : 1 }}>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: e.cooked ? muted : (e.ready ? '#3d6218' : errorColor) }} />
+                      <div onClick={e.onOpen} className="flex-1 min-w-0 cursor-pointer">
+                        <div className="text-[14px] font-semibold truncate" style={{ color: text }}>{e.name}</div>
+                        <div className="text-[12px] mt-0.5" style={{ color: muted }}>{e.cooked ? `Cooked · ${e.servings} servings` : (e.ready ? 'Ready to cook' : 'Missing ingredients')}</div>
+                      </div>
+                      {!e.cooked && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={e.onDec} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>−</button>
+                          <div className="text-[12.5px] font-bold w-12 text-center" style={{ color: text }}>{e.servings} srv</div>
+                          <button onClick={e.onInc} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>+</button>
+                        </div>
+                      )}
+                      <div onClick={e.onRemove} className="shrink-0 cursor-pointer" aria-label="Remove">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6a496" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                      </div>
+                    </div>
+                    {e.onCook && (
+                      <button onClick={e.onCook} className="w-full mt-2.5 h-9 rounded-lg text-white text-[13px] font-bold" style={{ background: accent }}>Cook this</button>
+                    )}
+                    {e.cooked && e.onUndoCook && (
+                      <div onClick={e.onUndoCook} className="mt-2 text-center text-[12px] font-semibold cursor-pointer" style={{ color: accent }}>Undo cook</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {shopWeekActive && weekHasEntries && (
+              <div className="mt-6">
+                <div className="text-[12.5px] font-bold uppercase tracking-wide mb-2" style={{ color: muted }}>This week&apos;s shopping</div>
+                {needRows.length === 0 && <div className="text-[13px]" style={{ color: '#a6a496' }}>Everything for this week is already on hand.</div>}
+                {needRows.map((n) => (
+                  <div key={n.id} className="rounded-xl px-3.5 py-2.5 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
+                    <div className="text-[13.5px] font-semibold" style={{ color: text }}>{n.text}</div>
+                    <div className="text-[12px] mt-0.5" style={{ color: muted }}>{n.sub}</div>
+                  </div>
+                ))}
+                <div onClick={onGoGrocery} className="mt-1 text-center text-[13px] font-semibold cursor-pointer" style={{ color: accent }}>Open in Grocery list →</div>
+              </div>
+            )}
+            {hasAnyEntries && (
+              <div onClick={onGoRecipes} className="mt-6 text-center text-[13px] font-semibold cursor-pointer" style={{ color: accent }}>+ Add more recipes from Recipes</div>
+            )}
+          </>
+        )}
+
+        {view === 'fridge' && (
+          <>
+            <div className="text-[12.5px] font-bold uppercase tracking-wide mt-4 mb-2" style={{ color: muted }}>What&apos;s in the fridge</div>
+            {fridge.length === 0 && <div className="text-[13px] py-4" style={{ color: '#a6a496' }}>Nothing cooked right now. Cook a planned recipe from the This Week tab.</div>}
+            {fridge.map((f) => (
+              <div key={f.id} className="rounded-2xl p-3.5 mb-2.5" style={{ background: card, border: `1.5px solid ${border}` }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[14.5px] font-semibold" style={{ color: text }}>{f.name}</div>
+                    <div className="text-[12px] mt-0.5" style={{ color: muted }}>{f.servingsLeft} of {f.servingsMade} servings left</div>
+                  </div>
+                  <div className="text-[11.5px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: hexToRgba(freshColor(f.fresh), 0.16), color: freshColor(f.fresh) }}>
+                    {f.fresh === 'past' ? 'Past use-by' : f.fresh === 'soon' ? 'Use soon' : 'Fresh'}
+                  </div>
                 </div>
-                <div onClick={e.onRemove} className="shrink-0 cursor-pointer" aria-label="Remove">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6a496" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                <div className="flex items-center gap-2 mt-3">
+                  <button onClick={f.onEat1} className="flex-1 h-9 rounded-lg text-[13px] font-bold" style={{ background: section, color: text }}>Ate 1</button>
+                  <button onClick={f.onEat2} className="flex-1 h-9 rounded-lg text-[13px] font-bold" style={{ background: section, color: text }}>Ate 2</button>
+                  {f.hasEaten && <div onClick={f.onUndoEat} className="text-[12px] font-semibold cursor-pointer px-2" style={{ color: accent }}>undo</div>}
+                </div>
+                <div className="flex items-center gap-2 mt-2.5">
+                  <div className="text-[11.5px] font-bold uppercase tracking-wide" style={{ color: muted }}>Use by</div>
+                  <input type="date" value={f.useBy} onChange={f.onUseByChange} className="h-[34px] rounded-lg px-2 text-[13px] outline-none" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
                 </div>
               </div>
             ))}
+
+            <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Eaten this week</div>
+            {eatenThisWeek.length === 0 && <div className="text-[13px]" style={{ color: '#a6a496' }}>Nothing logged yet.</div>}
+            {eatenThisWeek.map((d) => (
+              <div key={d.date} className="rounded-xl px-3.5 py-2.5 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
+                <div className="text-[12.5px] font-bold" style={{ color: text }}>{d.label}</div>
+                <div className="text-[12.5px] mt-0.5" style={{ color: muted }}>{d.items.map((i) => `${i.name} ×${i.servings}`).join(', ')}</div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CookConfirmScreen(props: {
+  name: string; servings: number;
+  effects: { label: string; itemName: string; fromText: string; toText: string }[];
+  unmatched: string[];
+  onCancel: () => void; onConfirm: () => void;
+}) {
+  const { name, servings, effects, unmatched, onCancel, onConfirm } = props;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
+        <BackLink label="Cancel" onClick={onCancel} />
+        <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Cook {name}?</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Making {servings} serving{servings === 1 ? '' : 's'}. This deducts from your inventory:</div>
+
+        {effects.length === 0 && <div className="text-[13px] mt-4" style={{ color: '#a6a496' }}>Nothing to deduct — no tracked ingredients matched an item with a quantity.</div>}
+        {effects.map((x, i) => (
+          <div key={i} className="rounded-xl px-3.5 py-2.5 mt-2" style={{ background: card, border: `1.5px solid ${border}` }}>
+            <div className="text-[13.5px] font-semibold" style={{ color: text }}>{x.itemName}</div>
+            <div className="text-[12.5px] mt-0.5" style={{ color: muted }}>{x.fromText} → {x.toText}</div>
           </div>
         ))}
-        {shopWeekActive && weekHasEntries && (
-          <div className="mt-6">
-            <div className="text-[12.5px] font-bold uppercase tracking-wide mb-2" style={{ color: muted }}>This week&apos;s shopping</div>
-            {needRows.length === 0 && <div className="text-[13px]" style={{ color: '#a6a496' }}>Everything for this week is already on hand.</div>}
-            {needRows.map((n) => (
-              <div key={n.id} className="rounded-xl px-3.5 py-2.5 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
-                <div className="text-[13.5px] font-semibold" style={{ color: text }}>{n.text}</div>
-                <div className="text-[12px] mt-0.5" style={{ color: muted }}>{n.sub}</div>
-              </div>
-            ))}
-            <div onClick={onGoGrocery} className="mt-1 text-center text-[13px] font-semibold cursor-pointer" style={{ color: accent }}>Open in Grocery list →</div>
-          </div>
+
+        {unmatched.length > 0 && (
+          <>
+            <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-1.5" style={{ color: muted }}>Not in inventory</div>
+            <div className="text-[13px]" style={{ color: '#a6a496' }}>{unmatched.join(', ')} — not deducted.</div>
+          </>
         )}
-        {hasAnyEntries && (
-          <div onClick={onGoRecipes} className="mt-6 text-center text-[13px] font-semibold cursor-pointer" style={{ color: accent }}>+ Add more recipes from Recipes</div>
-        )}
+      </div>
+      <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
+        <button onClick={onConfirm} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold" style={{ background: accent }}>Cook & update inventory</button>
       </div>
     </div>
   );
