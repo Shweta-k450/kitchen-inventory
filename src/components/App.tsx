@@ -1034,20 +1034,41 @@ function ItemDetailScreen(props: { item: ReturnType<typeof decorateItem>; status
 
 function Add1Screen(props: { onCancel: () => void; onTakePhoto: (e: ChangeEvent<HTMLInputElement>) => void; photoLoading: boolean; onStartReceiptScan: () => void; onEnterManually: () => void }) {
   const { onCancel, onTakePhoto, photoLoading, onStartReceiptScan, onEnterManually } = props;
+  const cardClass = 'flex-1 min-h-0 rounded-[20px] flex flex-col items-center justify-center gap-2.5 cursor-pointer text-center px-4';
+  const cardStyle: CSSProperties = { border: `2px dashed ${border}`, background: card };
+  const iconWrap = 'w-16 h-16 rounded-full flex items-center justify-center shrink-0';
   return (
     <div className="absolute inset-0 flex flex-col px-5 pt-5 pb-6">
       <BackLink label="Cancel" onClick={onCancel} />
       <div className="text-[24px] font-extrabold mt-3.5" style={{ color: text }}>Add New Item</div>
-      <div className="text-[13.5px] mt-1" style={{ color: muted }}>Snap a photo and Claude will identify it.</div>
-      <label className="mt-6 flex-1 rounded-[20px] flex flex-col items-center justify-center gap-2.5 cursor-pointer" style={{ border: `2px dashed ${border}`, background: card }}>
-        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onTakePhoto} />
-        <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: '#f7e3e5' }}>
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13" r="3.5" /></svg>
+      <div className="text-[13.5px] mt-1" style={{ color: muted }}>Pick how you&apos;d like to add it.</div>
+
+      <div className="flex-1 min-h-0 flex flex-col gap-3 mt-5">
+        <label className={cardClass} style={cardStyle}>
+          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onTakePhoto} />
+          <div className={iconWrap} style={{ background: '#f7e3e5' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13" r="3.5" /></svg>
+          </div>
+          <div className="text-[14.5px] font-semibold" style={{ color: text }}>{photoLoading ? 'Identifying…' : 'Take a photo'}</div>
+          <div className="text-[12px]" style={{ color: muted }}>Claude identifies the item for you</div>
+        </label>
+
+        <div onClick={onStartReceiptScan} className={cardClass} style={cardStyle}>
+          <div className={iconWrap} style={{ background: '#f7e3e5' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4V3z" /><path d="M9 8h6M9 12h6" /></svg>
+          </div>
+          <div className="text-[14.5px] font-semibold" style={{ color: text }}>Scan a grocery receipt</div>
+          <div className="text-[12px]" style={{ color: muted }}>Pull items from a photo of your bill</div>
         </div>
-        <div className="text-[14.5px] font-semibold" style={{ color: text }}>{photoLoading ? 'Identifying…' : 'Tap to take a photo'}</div>
-      </label>
-      <div onClick={onStartReceiptScan} className="mt-4 text-center text-[13.5px] font-semibold cursor-pointer" style={{ color: accent }}>Scan a grocery receipt instead</div>
-      <div onClick={onEnterManually} className="mt-3 text-center text-[13.5px] font-semibold cursor-pointer" style={{ color: accent }}>Enter details manually instead</div>
+
+        <div onClick={onEnterManually} className={cardClass} style={cardStyle}>
+          <div className={iconWrap} style={{ background: '#f7e3e5' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15.5V20h4.5L20 8.5 15.5 4 4 15.5z" /><path d="M13.5 6l4.5 4.5" /></svg>
+          </div>
+          <div className="text-[14.5px] font-semibold" style={{ color: text }}>Enter details manually</div>
+          <div className="text-[12px]" style={{ color: muted }}>Type the name and details yourself</div>
+        </div>
+      </div>
     </div>
   );
 }
