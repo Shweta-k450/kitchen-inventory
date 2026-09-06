@@ -25,6 +25,8 @@ export interface Item {
   date: string | null; // ISO date string, or null
   quantity?: number | null; // amount on hand, paired with `unit`
   unit?: string | null; // 'kg' | 'g' | 'L' | 'mL' | 'lb' | 'oz' | 'count' | 'pack'
+  needsSorting?: boolean | null; // just bought from the grocery list — user still has to place it / confirm quantity
+  sortReason?: 'new' | 'restocked' | null; // why it's in the "to be sorted" bucket
 }
 
 export interface Ingredient {

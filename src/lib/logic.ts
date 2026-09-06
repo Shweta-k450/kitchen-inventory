@@ -138,6 +138,8 @@ export interface DecoratedItem extends Item {
   badgeStyle: { background: string; color: string } | null;
   needsRestock: boolean;
   soonOrUrgent: boolean;
+  needsSorting: boolean;
+  sortReason: 'new' | 'restocked' | null;
 }
 
 export function decorateItem(item: Item): DecoratedItem {
@@ -175,6 +177,8 @@ export function decorateItem(item: Item): DecoratedItem {
     badgeStyle,
     needsRestock: item.status === 'out' || item.status === 'low' || item.status === 'buy-now',
     soonOrUrgent: urgency === 'urgent' || urgency === 'soon',
+    needsSorting: item.needsSorting === true,
+    sortReason: item.sortReason ?? null,
   };
 }
 

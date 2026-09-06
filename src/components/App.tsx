@@ -23,7 +23,7 @@ import PullToRefresh from './PullToRefresh';
 import SwipeBack from './SwipeBack';
 
 type Screen =
-  | 'home' | 'location' | 'pantryBin' | 'itemDetail' | 'add1' | 'add2' | 'add3'
+  | 'home' | 'location' | 'pantryBin' | 'sortBucket' | 'itemDetail' | 'add1' | 'add2' | 'add3'
   | 'receiptScan' | 'receiptReview' | 'grocery' | 'search'
   | 'recipes' | 'recipeDetail' | 'recipeAdd1' | 'recipeAdd2' | 'recipeAdd3'
   | 'plan' | 'planAdd' | 'planReview' | 'cookConfirm';
@@ -120,6 +120,10 @@ export default function App() {
   const patch = (p: Partial<UiState>) => setStRaw((prev) => ({ ...prev, ...p }));
 
   const decorated = useMemo(() => kitchen.items.map(decorateItem), [kitchen.items]);
+  // Items freshly checked off the grocery list live in the "To be sorted" bucket and
+  // are held out of the location screens/counts until the user places them.
+  const placedDecorated = useMemo(() => decorated.filter((i) => !i.needsSorting), [decorated]);
+  const toSortItems = useMemo(() => decorated.filter((i) => i.needsSorting), [decorated]);
   const decoratedRecipes = useMemo(
     () => kitchen.recipes.map((r) => {
       const readiness = recipeReadiness(r, kitchen.items);
@@ -132,6 +136,7 @@ export default function App() {
   const openLocation = (id: LocationId) => () => patch({ screen: 'location', selectedLocationId: id, locationCategoryFilter: null, selectedPantryBin: null });
   const openPantryBin = (bin: string | null) => () => patch({ screen: 'pantryBin', selectedLocationId: 'pantry', selectedPantryBin: bin });
   const backToPantry = () => patch({ screen: 'location', selectedLocationId: 'pantry', selectedPantryBin: null });
+  const openToSort = () => patch({ screen: 'sortBucket' });
   const openItem = (returnTo: Screen) => (id: string) => () => patch({ screen: 'itemDetail', selectedItemId: id, itemDetailReturnTo: returnTo });
   const backToHome = () => patch({ screen: 'home' });
   const closeItemDetail = () => patch({ screen: st.itemDetailReturnTo });
@@ -146,14 +151,45 @@ export default function App() {
   const clearSearchQuery = () => patch({ searchQuery: '' });
 
   // ---------- item mutations ----------
-  const toggleAuto = (id: string) => () => kitchen.setItemStatus(id, { status: 'ok' });
-  const removeManual = (id: string) => () => kitchen.removeManualGroceryItem(id);
+  // Checking a restock item off the grocery list: it's back in stock. If it tracks a
+  // quantity, that number is now stale, so drop it in the "To be sorted" bucket for
+  // the user to update the amount.
+  const toggleAuto = (id: string) => () => {
+    const it = kitchen.items.find((i) => i.id === id);
+    const tracksQty = !!it && (it.unit != null || it.quantity != null);
+    kitchen.setItemStatus(id, tracksQty ? { status: 'ok', needsSorting: true, sortReason: 'restocked' } : { status: 'ok' });
+  };
+  // Checking a hand-added grocery item off: turn it into a real inventory item. If
+  // something by that name already exists in the kitchen, just mark that back in
+  // stock; otherwise create it and leave it in the "To be sorted" bucket to be placed.
+  const removeManual = (id: string) => () => {
+    const name = (kitchen.groceryExtras.find((g) => g.id === id)?.name || '').trim();
+    const existing = name ? kitchen.items.find((i) => i.name.trim().toLowerCase() === name.toLowerCase()) : null;
+    if (existing) {
+      const tracksQty = existing.unit != null || existing.quantity != null;
+      kitchen.setItemStatus(existing.id, tracksQty ? { status: 'ok', needsSorting: true, sortReason: 'restocked' } : { status: 'ok' });
+    } else if (name) {
+      kitchen.saveItem(null, {
+        name, category: 'grains', location: 'pantry', bin: '', store: null,
+        status: 'ok', dateType: null, date: null, quantity: null, unit: null,
+        needsSorting: true, sortReason: 'new',
+      });
+    }
+    kitchen.removeManualGroceryItem(id);
+  };
   const setStatus = (status: Item['status']) => () => {
     if (st.selectedItemId) kitchen.setItemStatus(st.selectedItemId, { status });
   };
   const removeItemHandler = () => {
     if (st.selectedItemId) kitchen.removeItem(st.selectedItemId);
     patch({ screen: st.itemDetailReturnTo });
+  };
+  const markItemSorted = () => {
+    const id = st.selectedItemId;
+    if (!id) return;
+    kitchen.updateItem(id, { needsSorting: false, sortReason: null });
+    const stillToSort = decorated.some((i) => i.id !== id && i.needsSorting);
+    patch({ screen: st.itemDetailReturnTo === 'sortBucket' && !stillToSort ? 'home' : st.itemDetailReturnTo });
   };
   const setItemLocation = (loc: LocationId) => () => {
     const id = st.selectedItemId;
@@ -729,7 +765,7 @@ export default function App() {
 
   // ---------- home stats ----------
   const statsFor = (locId: LocationId) => {
-    const items = decorated.filter((i) => i.location === locId);
+    const items = placedDecorated.filter((i) => i.location === locId);
     const alerts = items.filter((i) => i.needsRestock || i.soonOrUrgent).length;
     return { count: items.length, alerts };
   };
@@ -738,39 +774,39 @@ export default function App() {
   const freezerStats = statsFor('freezer');
   const spareStats = statsFor('spare-fridge');
   const spareFreezerStats = statsFor('spare-freezer');
-  const restockCount = decorated.filter((i) => i.needsRestock).length + kitchen.groceryExtras.length;
-  const expiringSoonCount = decorated.filter((i) => i.soonOrUrgent).length;
+  const restockCount = placedDecorated.filter((i) => i.needsRestock).length + kitchen.groceryExtras.length;
+  const expiringSoonCount = placedDecorated.filter((i) => i.soonOrUrgent).length;
 
   // ---------- location screen ----------
   const currentLocationId = st.selectedLocationId || 'pantry';
   const currentLocationIsPantry = currentLocationId === 'pantry';
   const locationSections: Section[] = currentLocationIsPantry
     ? []
-    : buildLocationCategorySections(decorated, currentLocationId, st.locationCategoryFilter, openItem('location'));
-  const filterChips = currentLocationIsPantry ? [] : categoryChipsForLocation(decorated, currentLocationId, st.locationCategoryFilter, (id) => patch({ locationCategoryFilter: id }));
+    : buildLocationCategorySections(placedDecorated, currentLocationId, st.locationCategoryFilter, openItem('location'));
+  const filterChips = currentLocationIsPantry ? [] : categoryChipsForLocation(placedDecorated, currentLocationId, st.locationCategoryFilter, (id) => patch({ locationCategoryFilter: id }));
 
   // ---------- pantry bin grid + bin detail ----------
-  const pantryBinSummaries = useMemo(() => buildPantryBinSummaries(decorated), [decorated]);
+  const pantryBinSummaries = useMemo(() => buildPantryBinSummaries(placedDecorated), [placedDecorated]);
   const pantryBinCards = [
     { key: '__all__', label: 'All Items', count: pantryStats.count, alerts: 0, onOpen: openPantryBin(null) },
     ...pantryBinSummaries.map((s) => ({ key: s.bin, label: s.bin, count: s.count, alerts: s.alerts, onOpen: openPantryBin(s.bin) })),
   ];
   const pantryBinIsAll = st.selectedPantryBin === null;
   const pantryBinSections: Section[] = pantryBinIsAll
-    ? buildPantrySections(decorated, openItem('pantryBin'))
-    : buildPantryBinCategorySections(decorated, st.selectedPantryBin ?? '', openItem('pantryBin'));
+    ? buildPantrySections(placedDecorated, openItem('pantryBin'))
+    : buildPantryBinCategorySections(placedDecorated, st.selectedPantryBin ?? '', openItem('pantryBin'));
   const pantryBinLabel = pantryBinIsAll ? 'All Items' : (st.selectedPantryBin ?? 'Other');
   const pantryBinCount = pantryBinIsAll
     ? pantryStats.count
-    : decorated.filter((i) => i.location === 'pantry' && normBin(i.bin || 'Other') === normBin(st.selectedPantryBin)).length;
+    : placedDecorated.filter((i) => i.location === 'pantry' && normBin(i.bin || 'Other') === normBin(st.selectedPantryBin)).length;
 
   // ---------- grocery screen ----------
-  const stockGrocerySections: Section[] = buildGrocerySections(decorated, kitchen.groceryExtras, st.storeFilter, toggleAuto, removeManual);
+  const stockGrocerySections: Section[] = buildGrocerySections(placedDecorated, kitchen.groceryExtras, st.storeFilter, toggleAuto, removeManual);
   const grocerySections: Section[] = groceryPlanRows.length
     ? [{ sectionTitle: 'For the Meal Plan', rows: groceryPlanRows }, ...stockGrocerySections]
     : stockGrocerySections;
-  const storeFilterChips = storeChipsForGrocery(decorated, st.storeFilter, setStoreFilter);
-  const groceryTotal = decorated.filter((i) => i.needsRestock && (!st.storeFilter || i.store === st.storeFilter)).length + kitchen.groceryExtras.length + groceryPlanRows.length;
+  const storeFilterChips = storeChipsForGrocery(placedDecorated, st.storeFilter, setStoreFilter);
+  const groceryTotal = placedDecorated.filter((i) => i.needsRestock && (!st.storeFilter || i.store === st.storeFilter)).length + kitchen.groceryExtras.length + groceryPlanRows.length;
 
   // ---------- search ----------
   const searchQ = st.searchQuery.trim().toLowerCase();
@@ -832,6 +868,7 @@ export default function App() {
   const swipeBackHandlers: Partial<Record<Screen, () => void>> = {
     location: backToHome,
     pantryBin: backToPantry,
+    sortBucket: backToHome,
     itemDetail: closeItemDetail,
     add1: cancelAdd,
     receiptScan: backToAdd1FromReceipt,
@@ -851,6 +888,7 @@ export default function App() {
   const swipeBackTargets: Partial<Record<Screen, Screen>> = {
     location: 'home',
     pantryBin: 'location',
+    sortBucket: 'home',
     itemDetail: st.itemDetailReturnTo,
     add1: st.addReturnTab,
     receiptScan: 'add1',
@@ -905,6 +943,20 @@ export default function App() {
             spareStats={spareStats} spareFreezerStats={spareFreezerStats}
             openPantry={openLocation('pantry')} openFridge={openLocation('fridge')} openFreezer={openLocation('freezer')}
             openSpare={openLocation('spare-fridge')} openSpareFreezer={openLocation('spare-freezer')}
+            toSortCount={toSortItems.length} onOpenToSort={openToSort}
+          />
+        );
+      case 'sortBucket':
+        return (
+          <SortBucketScreen
+            rows={toSortItems.map((i) => ({
+              id: i.id, name: i.name, dotColor: i.catDot,
+              meta: i.sortReason === 'new' ? 'New — choose where it goes' : 'Restocked — update the amount on hand',
+              metaColor: muted,
+              hasBadge: false, badgeText: '', badgeStyle: null as { background: string; color: string } | null,
+              onOpen: openItem('sortBucket')(i.id),
+            }))}
+            onBack={backToHome}
           />
         );
       case 'location':
@@ -917,7 +969,7 @@ export default function App() {
         ) : (
           <LocationScreen
             label={LOCATION_MAP[currentLocationId]?.label || ''}
-            count={decorated.filter((i) => i.location === currentLocationId).length}
+            count={placedDecorated.filter((i) => i.location === currentLocationId).length}
             showFilters={!currentLocationIsPantry}
             filterChips={filterChips}
             sections={locationSections}
@@ -951,6 +1003,9 @@ export default function App() {
             onQtyCommit={commitItemQty}
             onClose={closeItemDetail}
             onRemove={removeItemHandler}
+            needsSorting={si.needsSorting}
+            sortReason={si.sortReason}
+            onMarkSorted={markItemSorted}
           />
         );
       }
@@ -1264,8 +1319,9 @@ function HomeScreen(props: {
   pantryStats: { count: number; alerts: number }; fridgeStats: { count: number; alerts: number };
   freezerStats: { count: number; alerts: number }; spareStats: { count: number; alerts: number }; spareFreezerStats: { count: number; alerts: number };
   openPantry: () => void; openFridge: () => void; openFreezer: () => void; openSpare: () => void; openSpareFreezer: () => void;
+  toSortCount: number; onOpenToSort: () => void;
 }) {
-  const { totalItems, dbStatus, restockCount, expiringSoonCount, goGrocery, onSearch, pantryStats, fridgeStats, freezerStats, spareStats, spareFreezerStats, openPantry, openFridge, openFreezer, openSpare, openSpareFreezer } = props;
+  const { totalItems, dbStatus, restockCount, expiringSoonCount, goGrocery, onSearch, pantryStats, fridgeStats, freezerStats, spareStats, spareFreezerStats, openPantry, openFridge, openFreezer, openSpare, openSpareFreezer, toSortCount, onOpenToSort } = props;
   const showSyncBanner = dbStatus === 'unavailable' || dbStatus === 'error';
   const cards = [
     { label: 'Pantry', stats: pantryStats, onOpen: openPantry, icon: 'box' as const, color: LOCATION_MAP['pantry'].color },
@@ -1307,6 +1363,19 @@ function HomeScreen(props: {
               <div className="text-[12.5px] mt-0.5" style={{ color: muted }}>expiring soon</div>
             </div>
           )}
+        </div>
+      )}
+
+      {toSortCount > 0 && (
+        <div onClick={onOpenToSort} className="flex items-center gap-3 mt-5 rounded-2xl p-4 cursor-pointer" style={{ background: accent }}>
+          <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.18)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h18M6 12h12M10 17h4" /></svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[14.5px] font-bold text-white">To be sorted</div>
+            <div className="text-[12.5px] mt-0.5" style={{ color: 'rgba(255,255,255,0.8)' }}>{toSortCount} item{toSortCount === 1 ? '' : 's'} to place or update</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M9 5l7 7-7 7" /></svg>
         </div>
       )}
 
@@ -1421,6 +1490,33 @@ function PantryBinsScreen(props: {
   );
 }
 
+function SortBucketScreen(props: {
+  rows: { id: string; name: string; dotColor: string; meta?: string; metaColor?: string; hasBadge: boolean; badgeText: string; badgeStyle: { background: string; color: string } | null; onOpen?: () => void }[];
+  onBack: () => void;
+}) {
+  const { rows, onBack } = props;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="px-5 pt-5 pb-3 shrink-0">
+        <BackLink label="Back" onClick={onBack} />
+        <div className="text-[24px] font-extrabold mt-2.5" style={{ color: text }}>To be sorted</div>
+        <div className="text-[13.5px] mt-0.5" style={{ color: muted }}>
+          {rows.length === 0 ? 'Nothing waiting — all put away.' : `${rows.length} item${rows.length === 1 ? '' : 's'} bought but not placed yet`}
+        </div>
+      </div>
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-10">
+        {rows.length === 0 ? (
+          <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>
+            When you check something off the grocery list, it lands here so you can give it a spot and quantity.
+          </div>
+        ) : (
+          rows.map((row) => <RowCard key={row.id} row={row} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ItemDetailScreen(props: {
   item: ReturnType<typeof decorateItem>;
   statusOptions: { label: string; style: CSSProperties; onClick: () => void }[];
@@ -1431,8 +1527,11 @@ function ItemDetailScreen(props: {
   onQtyCommit: (raw: string) => void;
   onClose: () => void;
   onRemove: () => void;
+  needsSorting: boolean;
+  sortReason: 'new' | 'restocked' | null;
+  onMarkSorted: () => void;
 }) {
-  const { item, statusOptions, locationOptions, isPantry, binOptions, unitOptions, onQtyCommit, onClose, onRemove } = props;
+  const { item, statusOptions, locationOptions, isPantry, binOptions, unitOptions, onQtyCommit, onClose, onRemove, needsSorting, sortReason, onMarkSorted } = props;
   const [qtyDraft, setQtyDraft] = useState(item.quantity != null ? String(item.quantity) : '');
   const commitQty = () => { if (qtyDraft.trim() !== (item.quantity != null ? String(item.quantity) : '')) onQtyCommit(qtyDraft); };
   return (
@@ -1443,6 +1542,21 @@ function ItemDetailScreen(props: {
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8z" /><path d="M4 8l8 4 8-4M12 12v8" /></svg>
         </div>
         <div className="text-[22px] font-extrabold mt-4.5" style={{ color: text }}>{item.name}</div>
+        {needsSorting && (
+          <div className="mt-3 rounded-2xl p-3.5" style={{ background: hexToRgba(accent, 0.08), border: `1.5px solid ${hexToRgba(accent, 0.25)}` }}>
+            <div className="text-[13px] font-bold" style={{ color: accent }}>
+              {sortReason === 'new' ? 'New from your grocery run' : 'Just restocked'}
+            </div>
+            <div className="text-[12.5px] mt-1" style={{ color: muted }}>
+              {sortReason === 'new'
+                ? 'Set its category, location and amount, then mark it sorted.'
+                : 'Update the amount on hand (and its spot if it moved), then mark it sorted.'}
+            </div>
+            <div onClick={onMarkSorted} className="mt-3 text-center py-2.5 rounded-xl text-[13px] font-bold text-white cursor-pointer" style={{ background: accent }}>
+              Mark as sorted
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2 mt-2.5">
           <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.catColor, color: onColor(item.catColor), border: '1px solid rgba(0,0,0,0.06)' }}>{item.catLabel}</div>
           <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.locColor, color: onColor(item.locColor), border: '1px solid rgba(0,0,0,0.06)' }}>{item.fullLocationLabel}</div>
