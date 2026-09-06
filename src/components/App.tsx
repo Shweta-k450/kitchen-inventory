@@ -574,7 +574,7 @@ export default function App() {
     if (r) {
       kitchen.saveRecipe(r.id, {
         name: r.name, ingredients: draftIngredients(), instructions: r.instructions || '',
-        photoDataUrl: r.photoDataUrl || '', servings: r.servings, nutrition: r.nutrition || null,
+        photoDataUrl: r.photoDataUrl || '', servings: r.servings ?? null, nutrition: r.nutrition ?? null,
       });
     }
     advancePlanReview(st.planReviewQueue.slice(1));

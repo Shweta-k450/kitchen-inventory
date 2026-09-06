@@ -4,7 +4,7 @@ rules_version = '2';
 //
 // This app has no login screen — anyone who has the app's URL and knows
 // nothing else can't read or write your data, because Firestore rejects
-// all access by default. These rules open up exactly the three collections
+// all access by default. These rules open up exactly the collections
 // the app uses, with no per-user split, which matches how the app is meant
 // to be used: one Firebase project per household. If you want a second,
 // separate household (e.g. for a family member) to have their own data,

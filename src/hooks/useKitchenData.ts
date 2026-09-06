@@ -209,15 +209,23 @@ export function useKitchenData() {
       return;
     }
     try {
-      const [itemsSnap, groceriesSnap, recipesSnap, planSnap] = await Promise.all([
+      const [itemsSnap, groceriesSnap, recipesSnap] = await Promise.all([
         getDocs(collection(db, 'items')),
         getDocs(collection(db, 'groceryExtras')),
         getDocs(collection(db, 'recipes')),
-        getDocs(collection(db, 'mealPlan')),
       ]);
       setItems(itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Item, 'id'>) })));
       setGroceryExtras(groceriesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ManualGroceryItem, 'id'>) })));
       setRecipes(recipesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Recipe, 'id'>) })));
+      setStatus('synced');
+    } catch {
+      setStatus('error');
+      return;
+    }
+    // Meal plan is a newer collection; if its security rules aren't published yet
+    // a failure here shouldn't drag the whole app into an error state.
+    try {
+      const planSnap = await getDocs(collection(db, 'mealPlan'));
       const planEntries: MealPlanEntry[] = [];
       let shopWeek: string | null = null;
       planSnap.docs.forEach((d) => {
@@ -226,9 +234,8 @@ export function useKitchenData() {
       });
       setMealPlanEntries(planEntries);
       setMealPlanShopWeek(shopWeek);
-      setStatus('synced');
     } catch {
-      setStatus('error');
+      /* meal plan unavailable — leave prior state */
     }
   }, []);
 
