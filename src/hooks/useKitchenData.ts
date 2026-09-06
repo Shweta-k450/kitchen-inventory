@@ -167,6 +167,12 @@ export function useKitchenData() {
     return finalId;
   }, []);
 
+  const updateRecipe = useCallback((id: string, patch: Partial<Recipe>) => {
+    const db = getDb();
+    if (!db) return;
+    updateDoc(doc(db, 'recipes', id), patch).catch(() => {});
+  }, []);
+
   const deleteRecipe = useCallback((id: string) => {
     const db = getDb();
     if (!db) return;
@@ -305,7 +311,7 @@ export function useKitchenData() {
     items, groceryExtras, recipes, mealPlanEntries, mealPlanShopWeek, preparedFood, status,
     setItemStatus, updateItem, saveItem, removeItem, addReceiptItems,
     addManualGroceryItem, removeManualGroceryItem,
-    saveRecipe, deleteRecipe,
+    saveRecipe, updateRecipe, deleteRecipe,
     addMealPlanEntry, addMealPlanEntries, updateMealPlanEntry, removeMealPlanEntry, setShopWeek,
     updatePreparedFood, removePreparedFood, cookRecipe, undoCook,
     refresh,

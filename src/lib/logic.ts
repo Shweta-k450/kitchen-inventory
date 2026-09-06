@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { CATEGORIES, CATEGORY_MAP, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS } from './constants';
+import { CATEGORIES, CATEGORY_MAP, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS, RECIPE_CATEGORY_PRESETS } from './constants';
 import type { Item, ItemStatus, LocationId, Ingredient, Recipe, PreparedFood, Deduction } from './types';
 
 export function daysUntil(dateStr: string | null): number | null {
@@ -568,6 +568,51 @@ export function dayLabel(iso: string): { weekday: string; day: string } {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
   return { weekday: wd[dt.getDay()], day: `${m}/${d}` };
+}
+
+// ---------- recipe categories ----------
+const normCat = (c: string | null | undefined) => (c || '').trim().toLowerCase();
+
+/** Preset categories plus any in use, deduped by normalized name (presets first, then custom A–Z). */
+export function knownRecipeCategories(recipes: Recipe[]): string[] {
+  const presetNorms = new Set(RECIPE_CATEGORY_PRESETS.map(normCat));
+  const custom = new Map<string, string>();
+  recipes.forEach((r) => {
+    const n = normCat(r.category);
+    if (!n || presetNorms.has(n) || custom.has(n)) return;
+    custom.set(n, (r.category || '').trim());
+  });
+  return [...RECIPE_CATEGORY_PRESETS, ...[...custom.values()].sort((a, b) => a.localeCompare(b))];
+}
+
+/** Fold a typed category name onto an existing one (any casing), else return it trimmed. */
+export function canonicalRecipeCategory(input: string, recipes: Recipe[]): string {
+  const t = input.trim();
+  if (!t) return t;
+  const n = normCat(t);
+  return knownRecipeCategories(recipes).find((c) => normCat(c) === n) || t;
+}
+
+export interface RecipeCategoryCard { key: string; label: string; count: number }
+
+/** One card per category that has recipes, ordered presets-first; plus Uncategorized when relevant. */
+export function recipeCategoryCards(recipes: Recipe[]): RecipeCategoryCard[] {
+  const groups = new Map<string, { label: string; count: number }>();
+  let uncategorized = 0;
+  recipes.forEach((r) => {
+    const n = normCat(r.category);
+    if (!n) { uncategorized += 1; return; }
+    const g = groups.get(n);
+    if (g) g.count += 1;
+    else groups.set(n, { label: (r.category || '').trim(), count: 1 });
+  });
+  const order = RECIPE_CATEGORY_PRESETS.map(normCat);
+  const rank = (k: string) => { const i = order.indexOf(k); return i === -1 ? 999 : i; };
+  const cards = [...groups.entries()]
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1].label.localeCompare(b[1].label))
+    .map(([key, g]) => ({ key, label: g.label, count: g.count }));
+  if (uncategorized > 0) cards.push({ key: '__uncat__', label: 'Uncategorized', count: uncategorized });
+  return cards;
 }
 
 export interface MealPlanGroceryRow {

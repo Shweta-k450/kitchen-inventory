@@ -54,6 +54,7 @@ export interface Recipe {
   photoDataUrl: string;
   servings: number | null;
   nutrition: Nutrition | null;
+  category?: string | null; // recipe category, e.g. "Dinner", "South Indian"
 }
 
 /** One recipe scheduled onto a day of the rolling meal plan. */

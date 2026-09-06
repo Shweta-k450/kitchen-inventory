@@ -76,6 +76,12 @@ export const RECIPE_UNITS = ['count', 'g', 'kg', 'mL', 'L', 'tsp', 'tbsp', 'cup'
 // Default shelf life for a cooked dish (cook date + this many days).
 export const LEFTOVER_DAYS = 3;
 
+// Starter recipe categories. Free-text — the user can add more; these just seed the list.
+export const RECIPE_CATEGORY_PRESETS = [
+  'Indian Breakfast', 'Western Breakfast', 'Lunch', 'Dinner', 'Salads', 'Wraps', 'Sandwiches',
+  'South Indian', 'North Indian', 'Maharashtrian', 'Festive', 'Desserts',
+];
+
 export const INITIAL_ITEMS: Item[] = [
   { id: 'p1', name: 'Basmati Rice', category: 'grains', location: 'pantry', bin: 'Dry Ingredients Shelf', store: 'indian-store', status: 'ok', dateType: null, date: null },
   { id: 'p2', name: 'Toor Dal', category: 'lentils', location: 'pantry', bin: 'Indian Pantry Bin', store: 'indian-store', status: 'low', dateType: null, date: null },

@@ -11,7 +11,7 @@ import {
   buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
-  parseAmount, formatAmount,
+  parseAmount, formatAmount, knownRecipeCategories, canonicalRecipeCategory, recipeCategoryCards,
   buildMealPlanGroceryRows, mondayOf, isoDate, addDays, weekDates, weekRangeLabel, dayLabel,
   planCookEffects, servingsLeft, preparedFreshness,
   type Section, type SectionRow, type CookEffect,
@@ -61,7 +61,8 @@ interface UiState {
   receiptDraftItems: ReceiptDraftItem[];
   receiptStore: string | null;
   expandedReceiptItemId: string | null;
-  recipeFilter: 'all' | 'ready';
+  recipeCatFilter: string | null; // null = category grid; sentinel or category name = filtered list
+  recipeCategoryDraft: string; // recipe's category while in the add/edit flow
   selectedRecipeId: string | null;
   editingRecipeId: string | null;
   recipeNameDraft: string;
@@ -96,7 +97,7 @@ const initialState: UiState = {
   locationCategoryFilter: null, storeFilter: null,
   addReturnTab: 'home', addDraft: BLANK_DRAFT, manualDraft: '', addPhotoStatus: 'idle',
   receiptStatus: 'idle', receiptErrorText: '', receiptDraftItems: [], receiptStore: null, expandedReceiptItemId: null,
-  recipeFilter: 'all', selectedRecipeId: null, editingRecipeId: null,
+  recipeCatFilter: null, recipeCategoryDraft: '', selectedRecipeId: null, editingRecipeId: null,
   recipeNameDraft: '', recipeIngredientTextDraft: '', recipeInstructionsDraft: '',
   recipeUrlDraft: '', recipeImportStatus: 'idle', recipeImportError: '',
   recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [], expandedRecipeIngredientId: null,
@@ -137,7 +138,7 @@ export default function App() {
   const goHomeTab = () => patch({ screen: 'home', tab: 'home' });
   const goGroceryTab = () => patch({ screen: 'grocery', tab: 'grocery' });
   const goGrocery = () => patch({ screen: 'grocery', tab: 'grocery' });
-  const goRecipesTab = () => patch({ screen: 'recipes', tab: 'recipes', recipeSelectMode: false, recipeSelection: [] });
+  const goRecipesTab = () => patch({ screen: 'recipes', tab: 'recipes', recipeCatFilter: null, recipeSelectMode: false, recipeSelection: [] });
   const goPlanTab = () => patch({ screen: 'plan', tab: 'plan' });
   const openSearch = () => patch({ screen: 'search', searchReturnScreen: st.screen });
   const closeSearch = () => patch({ screen: st.searchReturnScreen });
@@ -347,9 +348,22 @@ export default function App() {
   };
   const setStoreFilter = (id: string | null) => patch({ storeFilter: id });
 
-  // ---------- recipes: list ----------
-  const setRecipeFilter = (f: 'all' | 'ready') => patch({ recipeFilter: f });
-  const filteredRecipes = st.recipeFilter === 'ready' ? decoratedRecipes.filter((r) => r.readiness.ready) : decoratedRecipes;
+  // ---------- recipes: list & categories ----------
+  const normCat = (c: string | null | undefined) => (c || '').trim().toLowerCase();
+  const catCards = recipeCategoryCards(kitchen.recipes);
+  const recipeCatLabel = st.recipeCatFilter === '__all__' ? 'All Recipes'
+    : st.recipeCatFilter === '__ready__' ? 'Ready to Cook'
+    : st.recipeCatFilter === '__uncat__' ? 'Uncategorized'
+    : (st.recipeCatFilter || '');
+  const filteredRecipes = (() => {
+    const f = st.recipeCatFilter;
+    if (!f || f === '__all__') return decoratedRecipes;
+    if (f === '__ready__') return decoratedRecipes.filter((r) => r.readiness.ready);
+    if (f === '__uncat__') return decoratedRecipes.filter((r) => !normCat(r.category));
+    return decoratedRecipes.filter((r) => normCat(r.category) === normCat(f));
+  })();
+  const openRecipeCat = (key: string) => () => patch({ recipeCatFilter: key, recipeSelectMode: false, recipeSelection: [] });
+  const backToRecipeCats = () => patch({ recipeCatFilter: null, recipeSelectMode: false, recipeSelection: [] });
   const openRecipe = (returnTo: Screen) => (id: string) => () => patch({ screen: 'recipeDetail', selectedRecipeId: id, recipeDetailReturnTo: returnTo });
   const toggleRecipeSelectMode = () => patch({ recipeSelectMode: !st.recipeSelectMode, recipeSelection: [] });
   const toggleRecipeSelected = (id: string) => () => patch({
@@ -359,8 +373,11 @@ export default function App() {
     screen: 'recipeAdd1', editingRecipeId: null, recipeNameDraft: '', recipeIngredientTextDraft: '',
     recipeInstructionsDraft: '', recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [],
     recipeUrlDraft: '', recipeImportStatus: 'idle', recipeImportError: '',
+    recipeCategoryDraft: st.recipeCatFilter && !st.recipeCatFilter.startsWith('__') ? st.recipeCatFilter : '',
     recipePhotoDataUrl: '', recipePhotoStatus: 'idle', recipeServingsDraft: '', recipeSaveStatus: 'idle',
   });
+  const pickRecipeCategoryDraft = (c: string) => () => patch({ recipeCategoryDraft: normCat(st.recipeCategoryDraft) === normCat(c) ? '' : c });
+  const setRecipeCategoryDraft = (e: ChangeEvent<HTMLInputElement>) => patch({ recipeCategoryDraft: e.target.value });
 
   // ---------- recipes: detail ----------
   const selectedRecipe = decoratedRecipes.find((r) => r.id === st.selectedRecipeId) || null;
@@ -380,8 +397,18 @@ export default function App() {
       recipeIngredientDrafts: (selectedRecipe.ingredients || []).map((i) => ({ ...i })),
       recipePhotoDataUrl: selectedRecipe.photoDataUrl || '',
       recipeServingsDraft: selectedRecipe.servings ? String(selectedRecipe.servings) : '',
+      recipeCategoryDraft: selectedRecipe.category || '',
       recipeSaveStatus: 'idle', expandedRecipeIngredientId: null,
     });
+  };
+  const setDetailRecipeCategory = (c: string) => () => {
+    if (!selectedRecipe) return;
+    const clear = normCat(selectedRecipe.category) === normCat(c);
+    kitchen.updateRecipe(selectedRecipe.id, { category: clear ? null : canonicalRecipeCategory(c, kitchen.recipes) });
+  };
+  const addDetailRecipeCategory = (name: string) => {
+    if (!selectedRecipe || !name.trim()) return;
+    kitchen.updateRecipe(selectedRecipe.id, { category: canonicalRecipeCategory(name, kitchen.recipes) });
   };
 
   // ---------- recipes: add/edit step 1 ----------
@@ -495,9 +522,10 @@ export default function App() {
     const servingsNum = parseInt(st.recipeServingsDraft, 10);
     const servings = Number.isFinite(servingsNum) && servingsNum > 0 ? servingsNum : null;
     const id = st.editingRecipeId;
+    const category = st.recipeCategoryDraft.trim() ? canonicalRecipeCategory(st.recipeCategoryDraft, kitchen.recipes) : null;
     const baseBody: Omit<Recipe, 'id'> = {
       name, ingredients, instructions: st.recipeInstructionsDraft || '', photoDataUrl: st.recipePhotoDataUrl || '',
-      servings, nutrition: null,
+      servings, nutrition: null, category,
     };
 
     const finalize = (nutrition: Recipe['nutrition']) => {
@@ -1087,11 +1115,18 @@ export default function App() {
           />
         );
       case 'recipes':
-        return (
+        return st.recipeCatFilter === null ? (
+          <RecipeCategoriesScreen
+            total={kitchen.recipes.length}
+            readyCount={decoratedRecipes.filter((r) => r.readiness.ready).length}
+            cards={catCards}
+            onOpen={openRecipeCat}
+            onAdd={startAddRecipe}
+          />
+        ) : (
           <RecipesScreen
-            filterChips={[{ id: 'all' as const, label: 'All Recipes' }, { id: 'ready' as const, label: 'Ready to Cook' }].map((f) => ({
-              id: f.id, label: f.label, style: neutralChipStyle(st.recipeFilter === f.id), onClick: () => setRecipeFilter(f.id),
-            }))}
+            title={recipeCatLabel}
+            onBack={backToRecipeCats}
             recipes={filteredRecipes.map((r) => ({
               id: r.id, name: r.name, hasPhoto: !!r.photoDataUrl, photoDataUrl: r.photoDataUrl || '',
               readyLabel: r.readyLabel,
@@ -1104,8 +1139,7 @@ export default function App() {
             selectionCount={st.recipeSelection.length}
             onToggleSelectMode={toggleRecipeSelectMode}
             onAddSelectedToPlan={startAddToPlan}
-            empty={kitchen.recipes.length === 0}
-            filteredEmpty={kitchen.recipes.length > 0 && filteredRecipes.length === 0}
+            filteredEmpty={filteredRecipes.length === 0}
             onAdd={startAddRecipe}
           />
         );
@@ -1123,6 +1157,9 @@ export default function App() {
               const amt = ing.quantity || (ing.amount != null ? `${formatAmount(ing.amount)}${ing.unit && ing.unit !== 'count' ? ' ' + ing.unit : ''}` : '');
               return { ingId: ing.ingId, text: titleCaseWords(ing.name) + (amt ? ' — ' + amt : ''), statusText, statusColor, dotColor: (m.has || m.alwaysHave) ? '#3d6218' : errorColor };
             })}
+            currentCategory={selectedRecipe.category || null}
+            categoryChips={knownRecipeCategories(kitchen.recipes).map((c) => ({ label: c, active: normCat(selectedRecipe.category) === normCat(c), onClick: setDetailRecipeCategory(c) }))}
+            onAddCategory={addDetailRecipeCategory}
             onClose={closeRecipeDetail}
             onEdit={startEditRecipe}
             onDelete={deleteRecipeHandler}
@@ -1169,6 +1206,9 @@ export default function App() {
             photoLoading={st.recipePhotoStatus === 'loading'}
             onPhotoChange={onRecipePhotoChange}
             onRemovePhoto={removeRecipePhoto}
+            categoryDraft={st.recipeCategoryDraft}
+            categoryChips={knownRecipeCategories(kitchen.recipes).map((c) => ({ label: c, active: normCat(st.recipeCategoryDraft) === normCat(c), onClick: pickRecipeCategoryDraft(c) }))}
+            onCategoryTextChange={setRecipeCategoryDraft}
             onBack={backToRecipeAdd2}
             onSave={saveRecipe}
             saveLabel={st.recipeSaveStatus === 'loading' ? 'Estimating nutrition…' : (st.editingRecipeId ? 'Save Changes' : 'Save Recipe')}
@@ -1790,25 +1830,62 @@ function GroceryScreen(props: {
   );
 }
 
-function RecipesScreen(props: {
-  filterChips: { id: string; label: string; style: CSSProperties; onClick: () => void }[];
-  recipes: { id: string; name: string; hasPhoto: boolean; photoDataUrl: string; readyLabel: string; readyBadgeStyle: CSSProperties; selected: boolean; onToggleSelect: () => void; onOpen: () => void }[];
-  selectMode: boolean; selectionCount: number; onToggleSelectMode: () => void; onAddSelectedToPlan: () => void;
-  empty: boolean; filteredEmpty: boolean; onAdd: () => void;
+function RecipeCategoriesScreen(props: {
+  total: number; readyCount: number;
+  cards: { key: string; label: string; count: number }[];
+  onOpen: (key: string) => () => void;
+  onAdd: () => void;
 }) {
-  const { filterChips, recipes, selectMode, selectionCount, onToggleSelectMode, onAddSelectedToPlan, empty, filteredEmpty, onAdd } = props;
+  const { total, readyCount, cards, onOpen, onAdd } = props;
+  const gridCards = [
+    { key: '__all__', label: 'All Recipes', count: total },
+    { key: '__ready__', label: 'Ready to Cook', count: readyCount },
+    ...cards,
+  ];
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-6 pb-3 shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="text-[26px] font-extrabold" style={{ color: text }}>Recipes</div>
-          {!empty && (
-            <div onClick={onToggleSelectMode} className="text-[13.5px] font-bold cursor-pointer" style={{ color: accent }}>
-              {selectMode ? 'Done' : 'Select'}
-            </div>
-          )}
+        <div className="text-[26px] font-extrabold" style={{ color: text }}>Recipes</div>
+        <button onClick={onAdd} className="w-full h-11 mt-3.5 rounded-xl text-white text-[14.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: accent }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          Add Recipe
+        </button>
+      </div>
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-[100px]">
+        {total === 0 ? (
+          <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>No recipes yet — add the ones you cook at home.</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {gridCards.map((c) => (
+              <div key={c.key} onClick={onOpen(c.key)} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: card, border: `1.5px solid ${border}` }}>
+                <div className="text-[15px] font-bold pr-2 leading-snug" style={{ color: text }}>{c.label}</div>
+                <div className="text-[12.5px] mt-1" style={{ color: muted }}>{c.count} recipe{c.count === 1 ? '' : 's'}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecipesScreen(props: {
+  title: string; onBack: () => void;
+  recipes: { id: string; name: string; hasPhoto: boolean; photoDataUrl: string; readyLabel: string; readyBadgeStyle: CSSProperties; selected: boolean; onToggleSelect: () => void; onOpen: () => void }[];
+  selectMode: boolean; selectionCount: number; onToggleSelectMode: () => void; onAddSelectedToPlan: () => void;
+  filteredEmpty: boolean; onAdd: () => void;
+}) {
+  const { title, onBack, recipes, selectMode, selectionCount, onToggleSelectMode, onAddSelectedToPlan, filteredEmpty, onAdd } = props;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="px-5 pt-5 pb-3 shrink-0">
+        <BackLink label="Categories" onClick={onBack} />
+        <div className="flex items-center justify-between mt-2">
+          <div className="text-[24px] font-extrabold" style={{ color: text }}>{title}</div>
+          <div onClick={onToggleSelectMode} className="text-[13.5px] font-bold cursor-pointer" style={{ color: accent }}>
+            {selectMode ? 'Done' : 'Select'}
+          </div>
         </div>
-        <div className="flex gap-2 mt-3.5">{filterChips.map((c) => <Chip key={c.id} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
         {selectMode ? (
           <button onClick={onAddSelectedToPlan} disabled={selectionCount === 0} className="w-full h-11 mt-3 rounded-xl text-white text-[14.5px] font-bold disabled:opacity-50" style={{ background: accent }}>
             Add {selectionCount || ''} to meal plan
@@ -1821,10 +1898,7 @@ function RecipesScreen(props: {
         )}
       </div>
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
-        {empty && (
-          <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>No recipes yet — add the ones you cook at home.</div>
-        )}
-        {filteredEmpty && <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>Nothing&apos;s ready to cook right now.</div>}
+        {filteredEmpty && <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>No recipes here yet.</div>}
         {recipes.map((r) => (
           <div
             key={r.id}
@@ -1856,9 +1930,14 @@ function RecipesScreen(props: {
 function RecipeDetailScreen(props: {
   recipe: Recipe & { readiness: ReturnType<typeof recipeReadiness>; readyLabel: string };
   ingredientRows: { ingId: string; text: string; statusText: string; statusColor: string; dotColor: string }[];
+  currentCategory: string | null;
+  categoryChips: { label: string; active: boolean; onClick: () => void }[];
+  onAddCategory: (name: string) => void;
   onClose: () => void; onEdit: () => void; onDelete: () => void;
 }) {
-  const { recipe, ingredientRows, onClose, onEdit, onDelete } = props;
+  const { recipe, ingredientRows, currentCategory, categoryChips, onAddCategory, onClose, onEdit, onDelete } = props;
+  const [newCat, setNewCat] = useState('');
+  const [catOpen, setCatOpen] = useState(false);
   const hasServings = !!recipe.servings;
   const hasNutrition = !!(recipe.nutrition && Number.isFinite(recipe.nutrition.calories));
   const needsServings = !hasNutrition && !hasServings;
@@ -1872,7 +1951,25 @@ function RecipeDetailScreen(props: {
           {recipe.photoDataUrl && <img src={recipe.photoDataUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />}
         </div>
         <div className="text-[22px] font-extrabold mt-4.5" style={{ color: text }}>{recipe.name}</div>
-        <div className="inline-block mt-2.5 px-3 py-1.5 rounded-full text-[12.5px] font-bold" style={recipe.readiness.ready ? { background: hexToRgba('#4d7a1e', 0.16), color: '#3d6218' } : { background: section, color: muted }}>{recipe.readyLabel}</div>
+        <div className="flex flex-wrap items-center gap-2 mt-2.5">
+          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-bold" style={recipe.readiness.ready ? { background: hexToRgba('#4d7a1e', 0.16), color: '#3d6218' } : { background: section, color: muted }}>{recipe.readyLabel}</div>
+          <div onClick={() => setCatOpen((v) => !v)} className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold cursor-pointer" style={{ background: currentCategory ? hexToRgba(accent, 0.12) : section, color: currentCategory ? accent : muted }}>
+            {currentCategory || 'Add category'} {catOpen ? '▴' : '▾'}
+          </div>
+        </div>
+        {catOpen && (
+          <div className="mt-3 rounded-2xl p-3.5" style={{ background: card, border: `1.5px solid ${border}` }}>
+            <div className="flex flex-wrap gap-2">
+              {categoryChips.map((c) => (
+                <Chip key={c.label} label={c.label} style={c.active ? { background: accent, color: 'white', border: 'none', fontWeight: 700 } : { background: 'white', color: text, border: `1.5px solid ${border}`, fontWeight: 500 }} onClick={c.onClick} />
+              ))}
+            </div>
+            <div className="flex gap-2 mt-2.5">
+              <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category…" className="flex-1 min-w-0 h-[40px] rounded-lg px-3 text-sm outline-none" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
+              <button onClick={() => { onAddCategory(newCat); setNewCat(''); }} disabled={!newCat.trim()} className="shrink-0 px-3.5 h-[40px] rounded-lg text-white text-[13px] font-bold disabled:opacity-50" style={{ background: accent }}>Add</button>
+            </div>
+          </div>
+        )}
         {hasServings && <div className="text-[12.5px] mt-2" style={{ color: muted }}>Makes {recipe.servings} serving{recipe.servings === 1 ? '' : 's'}</div>}
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Ingredients</div>
@@ -2057,15 +2154,26 @@ function RecipeAdd2Screen(props: {
 function RecipeAdd3Screen(props: {
   hasPhoto: boolean; photoDataUrl: string; photoLoading: boolean;
   onPhotoChange: (e: ChangeEvent<HTMLInputElement>) => void; onRemovePhoto: () => void;
+  categoryDraft: string;
+  categoryChips: { label: string; active: boolean; onClick: () => void }[];
+  onCategoryTextChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onBack: () => void; onSave: () => void; saveLabel: string; saveDisabled: boolean;
 }) {
-  const { hasPhoto, photoDataUrl, photoLoading, onPhotoChange, onRemovePhoto, onBack, onSave, saveLabel, saveDisabled } = props;
+  const { hasPhoto, photoDataUrl, photoLoading, onPhotoChange, onRemovePhoto, categoryDraft, categoryChips, onCategoryTextChange, onBack, onSave, saveLabel, saveDisabled } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
         <BackLink label="Back" onClick={onBack} />
-        <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Add a Photo</div>
-        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Optional, but it makes the recipe book nicer to browse.</div>
+        <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Finishing Touches</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Category and a photo — both optional.</div>
+
+        <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Category</div>
+        <input value={categoryDraft} onChange={onCategoryTextChange} placeholder="e.g. Dinner, or type a new one" className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
+        <div className="flex flex-wrap gap-2 mt-2.5">
+          {categoryChips.map((c) => <Chip key={c.label} label={c.label} style={c.active ? { background: accent, color: 'white', border: 'none', fontWeight: 700 } : { background: 'white', color: text, border: `1.5px solid ${border}`, fontWeight: 500 }} onClick={c.onClick} />)}
+        </div>
+
+        <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Photo</div>
 
         {hasPhoto ? (
           <>
