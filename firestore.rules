@@ -21,6 +21,9 @@ service cloud.firestore {
     match /recipes/{recipeId} {
       allow read, write: if true;
     }
+    match /mealPlan/{docId} {
+      allow read, write: if true;
+    }
     match /{document=**} {
       allow read, write: if false;
     }

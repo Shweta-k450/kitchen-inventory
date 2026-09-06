@@ -3,7 +3,7 @@
 import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import { useKitchenData } from '@/hooks/useKitchenData';
 import {
-  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS, UNITS,
+  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS,
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
@@ -11,7 +11,8 @@ import {
   buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
-  type Section,
+  buildMealPlanGroceryRows, mondayOf, isoDate, addDays, weekDates, weekRangeLabel, dayLabel,
+  type Section, type SectionRow,
 } from '@/lib/logic';
 import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi } from '@/lib/apiClient';
 import type { Item, LocationId, Ingredient, Recipe } from '@/lib/types';
@@ -22,7 +23,8 @@ import SwipeBack from './SwipeBack';
 type Screen =
   | 'home' | 'location' | 'pantryBin' | 'itemDetail' | 'add1' | 'add2' | 'add3'
   | 'receiptScan' | 'receiptReview' | 'grocery' | 'search'
-  | 'recipes' | 'recipeDetail' | 'recipeAdd1' | 'recipeAdd2' | 'recipeAdd3';
+  | 'recipes' | 'recipeDetail' | 'recipeAdd1' | 'recipeAdd2' | 'recipeAdd3'
+  | 'plan' | 'planAdd' | 'planReview';
 
 interface AddDraft {
   name: string; category: string | null; location: LocationId | null; bin: string;
@@ -38,8 +40,9 @@ interface ReceiptDraftItem {
 
 interface UiState {
   screen: Screen;
-  tab: 'home' | 'grocery' | 'recipes' | 'search';
+  tab: 'home' | 'grocery' | 'recipes' | 'plan';
   searchQuery: string;
+  searchReturnScreen: Screen;
   selectedLocationId: LocationId | null;
   selectedPantryBin: string | null;
   selectedItemId: string | null;
@@ -47,7 +50,7 @@ interface UiState {
   recipeDetailReturnTo: Screen;
   locationCategoryFilter: string | null;
   storeFilter: string | null;
-  addReturnTab: 'home' | 'grocery' | 'recipes' | 'search';
+  addReturnTab: 'home' | 'grocery' | 'recipes' | 'plan';
   addDraft: AddDraft;
   manualDraft: string;
   addPhotoStatus: 'idle' | 'loading' | 'error';
@@ -70,11 +73,18 @@ interface UiState {
   recipePhotoStatus: 'idle' | 'loading' | 'error';
   recipeServingsDraft: string;
   recipeSaveStatus: 'idle' | 'loading';
-  dismissedRecipeNeeds: string[];
+  // meal plan
+  mealPlanWeek: string; // Monday ISO of the viewed week
+  recipeSelectMode: boolean;
+  recipeSelection: string[];
+  planBatch: { recipeId: string; date: string; servings: number }[];
+  planReviewQueue: string[]; // recipe ids awaiting ingredient-amount review
+  planEntryEditId: string | null; // meal-plan entry being edited (servings)
+  dismissedPlanNeeds: string[]; // shopping-list rows ticked off this session
 }
 
 const initialState: UiState = {
-  screen: 'home', tab: 'home', searchQuery: '',
+  screen: 'home', tab: 'home', searchQuery: '', searchReturnScreen: 'home',
   selectedLocationId: null, selectedPantryBin: null, selectedItemId: null, itemDetailReturnTo: 'location', recipeDetailReturnTo: 'recipes',
   locationCategoryFilter: null, storeFilter: null,
   addReturnTab: 'home', addDraft: BLANK_DRAFT, manualDraft: '', addPhotoStatus: 'idle',
@@ -83,7 +93,8 @@ const initialState: UiState = {
   recipeNameDraft: '', recipeIngredientTextDraft: '', recipeInstructionsDraft: '',
   recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [], expandedRecipeIngredientId: null,
   recipePhotoDataUrl: '', recipePhotoStatus: 'idle', recipeServingsDraft: '', recipeSaveStatus: 'idle',
-  dismissedRecipeNeeds: [],
+  mealPlanWeek: '', recipeSelectMode: false, recipeSelection: [], planBatch: [], planReviewQueue: [], planEntryEditId: null,
+  dismissedPlanNeeds: [],
 };
 
 const card = '#f9f6f3';
@@ -118,8 +129,10 @@ export default function App() {
   const goHomeTab = () => patch({ screen: 'home', tab: 'home' });
   const goGroceryTab = () => patch({ screen: 'grocery', tab: 'grocery' });
   const goGrocery = () => patch({ screen: 'grocery', tab: 'grocery' });
-  const goRecipesTab = () => patch({ screen: 'recipes', tab: 'recipes' });
-  const goSearchTab = () => patch({ screen: 'search', tab: 'search' });
+  const goRecipesTab = () => patch({ screen: 'recipes', tab: 'recipes', recipeSelectMode: false, recipeSelection: [] });
+  const goPlanTab = () => patch({ screen: 'plan', tab: 'plan' });
+  const openSearch = () => patch({ screen: 'search', searchReturnScreen: st.screen });
+  const closeSearch = () => patch({ screen: st.searchReturnScreen });
   const setSearchQuery = (e: ChangeEvent<HTMLInputElement>) => patch({ searchQuery: e.target.value });
   const clearSearchQuery = () => patch({ searchQuery: '' });
 
@@ -328,9 +341,12 @@ export default function App() {
 
   // ---------- recipes: list ----------
   const setRecipeFilter = (f: 'all' | 'ready') => patch({ recipeFilter: f });
-  const togglePlanned = (id: string, current: boolean) => () => kitchen.toggleRecipePlanned(id, current);
   const filteredRecipes = st.recipeFilter === 'ready' ? decoratedRecipes.filter((r) => r.readiness.ready) : decoratedRecipes;
   const openRecipe = (returnTo: Screen) => (id: string) => () => patch({ screen: 'recipeDetail', selectedRecipeId: id, recipeDetailReturnTo: returnTo });
+  const toggleRecipeSelectMode = () => patch({ recipeSelectMode: !st.recipeSelectMode, recipeSelection: [] });
+  const toggleRecipeSelected = (id: string) => () => patch({
+    recipeSelection: st.recipeSelection.includes(id) ? st.recipeSelection.filter((x) => x !== id) : [...st.recipeSelection, id],
+  });
   const startAddRecipe = () => patch({
     screen: 'recipeAdd1', editingRecipeId: null, recipeNameDraft: '', recipeIngredientTextDraft: '',
     recipeInstructionsDraft: '', recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [],
@@ -341,7 +357,7 @@ export default function App() {
   const selectedRecipe = decoratedRecipes.find((r) => r.id === st.selectedRecipeId) || null;
   const closeRecipeDetail = () => patch({
     screen: st.recipeDetailReturnTo,
-    tab: st.recipeDetailReturnTo === 'search' ? 'search' : 'recipes',
+    tab: st.recipeDetailReturnTo === 'plan' ? 'plan' : 'recipes',
   });
   const deleteRecipeHandler = () => {
     if (st.selectedRecipeId) kitchen.deleteRecipe(st.selectedRecipeId);
@@ -399,6 +415,14 @@ export default function App() {
   });
   const removeIngredientDraft = (ingId: string) => () => patch({ recipeIngredientDrafts: st.recipeIngredientDrafts.filter((ing) => ing.ingId !== ingId) });
   const pickIngredientCategory = (ingId: string, catId: string | null) => () => updateIngredientDraft(ingId, { category: catId });
+  const setIngredientAmount = (ingId: string) => (e: ChangeEvent<HTMLInputElement>) => {
+    const n = parseFloat(e.target.value);
+    updateIngredientDraft(ingId, { amount: e.target.value.trim() && Number.isFinite(n) && n > 0 ? n : null });
+  };
+  const pickIngredientUnit = (ingId: string, u: string) => () => {
+    const cur = st.recipeIngredientDrafts.find((i) => i.ingId === ingId);
+    updateIngredientDraft(ingId, { unit: cur?.unit === u ? null : u });
+  };
   const addBlankIngredient = () => {
     const row = buildIngredientRow({ text: '', name: '', quantity: '', category: null, trackable: true }, st.recipeIngredientDrafts.length);
     patch({ recipeIngredientDrafts: [...st.recipeIngredientDrafts, row], expandedRecipeIngredientId: row.ingId });
@@ -422,18 +446,21 @@ export default function App() {
   };
   const removeRecipePhoto = () => patch({ recipePhotoDataUrl: '', recipePhotoStatus: 'idle' });
 
+  const draftIngredients = (): Ingredient[] => st.recipeIngredientDrafts.map((ing) => ({
+    ingId: ing.ingId, text: ing.text, name: ing.name, quantity: ing.quantity,
+    amount: ing.amount ?? null, unit: ing.amount != null ? (ing.unit || 'count') : null,
+    category: ing.category, trackable: ing.trackable !== false,
+  }));
+
   const saveRecipe = async () => {
     const name = st.recipeNameDraft.trim() ? st.recipeNameDraft.trim() : 'Untitled Recipe';
-    const ingredients = st.recipeIngredientDrafts.map((ing) => ({
-      ingId: ing.ingId, text: ing.text, name: ing.name, quantity: ing.quantity, category: ing.category, trackable: ing.trackable !== false,
-    }));
+    const ingredients = draftIngredients();
     const servingsNum = parseInt(st.recipeServingsDraft, 10);
     const servings = Number.isFinite(servingsNum) && servingsNum > 0 ? servingsNum : null;
     const id = st.editingRecipeId;
-    const existing = id ? kitchen.recipes.find((r) => r.id === id) : null;
     const baseBody: Omit<Recipe, 'id'> = {
       name, ingredients, instructions: st.recipeInstructionsDraft || '', photoDataUrl: st.recipePhotoDataUrl || '',
-      planned: existing ? !!existing.planned : false, servings, nutrition: null,
+      servings, nutrition: null,
     };
 
     const finalize = (nutrition: Recipe['nutrition']) => {
@@ -451,32 +478,108 @@ export default function App() {
     finalize(error ? null : nutrition || null);
   };
 
-  // ---------- recipes -> grocery integration ----------
-  const plannedRecipes = decoratedRecipes.filter((r) => r.planned);
-  const recipeGroceryMap: Record<string, { key: string; label: string; recipeNames: string[]; matchedItem: Item | null }> = {};
-  plannedRecipes.forEach((r) => {
-    (r.readiness.missing || []).forEach((m) => {
-      const key = (m.ingredient.name || '').toLowerCase().trim();
-      if (!key) return;
-      if (!recipeGroceryMap[key]) recipeGroceryMap[key] = { key, label: titleCaseWords(m.ingredient.name), recipeNames: [], matchedItem: m.matchedItem || null };
-      if (recipeGroceryMap[key].recipeNames.indexOf(r.name) === -1) recipeGroceryMap[key].recipeNames.push(r.name);
+  // ---------- meal plan ----------
+  const weekStart = st.mealPlanWeek || mondayOf(new Date());
+  const weekDayIsos = weekDates(weekStart);
+  const todayIso = isoDate(new Date());
+  const decoratedRecipeById = useMemo(() => {
+    const m = new Map<string, (typeof decoratedRecipes)[number]>();
+    decoratedRecipes.forEach((r) => m.set(r.id, r));
+    return m;
+  }, [decoratedRecipes]);
+  const planEntriesByDate: Record<string, { id: string; recipeId: string; date: string; servings: number; recipeName: string; ready: boolean }[]> = {};
+  kitchen.mealPlanEntries.forEach((e) => {
+    const r = decoratedRecipeById.get(e.recipeId);
+    (planEntriesByDate[e.date] = planEntriesByDate[e.date] || []).push({
+      ...e, recipeName: r ? r.name : 'Deleted recipe', ready: r ? r.readiness.ready : false,
     });
   });
-  const dismissRecipeGroceryNeed = (key: string) => () => patch({ dismissedRecipeNeeds: [...st.dismissedRecipeNeeds, key] });
-  const matchedRecipeNeedsByItemId: Record<string, string[]> = {};
-  Object.keys(recipeGroceryMap).forEach((k) => {
-    const n = recipeGroceryMap[k];
-    if (n.matchedItem) matchedRecipeNeedsByItemId[n.matchedItem.id] = (matchedRecipeNeedsByItemId[n.matchedItem.id] || []).concat(n.recipeNames);
-  });
-  const recipeGroceryRows = Object.keys(recipeGroceryMap)
-    .map((k) => recipeGroceryMap[k])
-    .filter((n) => !n.matchedItem)
-    .filter((n) => st.dismissedRecipeNeeds.indexOf(n.key) === -1)
+  const shopWeekActive = kitchen.mealPlanShopWeek === weekStart;
+  const setShopWeek = () => kitchen.setShopWeek(shopWeekActive ? null : weekStart);
+  const shopEntries = shopWeekActive ? kitchen.mealPlanEntries.filter((e) => weekDayIsos.includes(e.date)) : [];
+  const mealPlanNeedRows = buildMealPlanGroceryRows(shopEntries, kitchen.recipes, kitchen.items);
+  const dismissPlanNeed = (key: string) => () => patch({ dismissedPlanNeeds: [...st.dismissedPlanNeeds, key] });
+  const groceryPlanRows: SectionRow[] = mealPlanNeedRows
+    .filter((n) => !st.dismissedPlanNeeds.includes(n.key))
     .map((n) => ({
-      id: n.key, name: n.label, dotColor: accent, hasMeta: true, meta: 'For: ' + n.recipeNames.join(', '),
-      hasBadge: false, badgeText: '', badgeStyle: null as { background: string; color: string } | null,
-      onCheck: dismissRecipeGroceryNeed(n.key),
+      id: 'plan-' + n.key,
+      name: n.buyText ? `${n.label} — ~${n.buyText}` : n.label,
+      dotColor: accent, hasMeta: true, meta: 'For: ' + n.recipeNames.join(', '),
+      hasBadge: false, badgeText: '', badgeStyle: null,
+      onCheck: dismissPlanNeed(n.key),
     }));
+  const changeWeek = (delta: number) => patch({ mealPlanWeek: addDays(weekStart, delta * 7) });
+  const setPlanServings = (id: string, delta: number, current: number) => () => kitchen.updateMealPlanEntry(id, { servings: Math.max(1, current + delta) });
+  const removePlanEntry = (id: string) => () => kitchen.removeMealPlanEntry(id);
+
+  // ---------- meal plan: add-from-list flow ----------
+  const planDayChoices = [...weekDayIsos, ...weekDates(addDays(weekStart, 7))];
+  const startAddToPlan = () => {
+    const defaultDay = weekDayIsos.includes(todayIso) ? todayIso : weekDayIsos[0];
+    const rows = st.recipeSelection.map((rid) => {
+      const r = kitchen.recipes.find((x) => x.id === rid);
+      return { recipeId: rid, date: defaultDay, servings: (r && r.servings) || 2 };
+    });
+    patch({ screen: 'planAdd', planBatch: rows });
+  };
+  const updatePlanBatchRow = (recipeId: string, p: Partial<{ date: string; servings: number }>) => patch({
+    planBatch: st.planBatch.map((b) => (b.recipeId === recipeId ? { ...b, ...p } : b)),
+  });
+  const cancelPlanAdd = () => patch({ screen: 'recipes', tab: 'recipes', planBatch: [], planReviewQueue: [], recipeSelectMode: false, recipeSelection: [] });
+
+  const loadPlanReview = async (recipeId: string) => {
+    const r = kitchen.recipes.find((x) => x.id === recipeId);
+    if (!r) return;
+    patch({
+      screen: 'planReview', editingRecipeId: recipeId, recipeNameDraft: r.name,
+      recipeIngredientDrafts: (r.ingredients || []).map((i) => ({ ...i })),
+      recipeParseStatus: 'loading', recipeParseErrorText: '', expandedRecipeIngredientId: null,
+    });
+    const { items } = await parseIngredientsApi((r.ingredients || []).map((i) => i.text).join('\n'));
+    patch({
+      recipeParseStatus: 'idle',
+      recipeIngredientDrafts: (r.ingredients || []).map((ing, idx) => {
+        const p = items ? items[idx] : undefined;
+        const amt = p ? Number(p.amount) : NaN;
+        const hasAmt = Number.isFinite(amt) && amt > 0;
+        const parsedUnit = p && typeof p.unit === 'string' && RECIPE_UNITS.includes(p.unit) ? p.unit : null;
+        return {
+          ...ing,
+          amount: hasAmt ? amt : (ing.amount ?? null),
+          unit: hasAmt ? (parsedUnit || ing.unit || 'count') : (ing.unit ?? null),
+        };
+      }),
+    });
+  };
+  const finishPlanFlow = () => {
+    kitchen.addMealPlanEntries(st.planBatch);
+    patch({ screen: 'plan', tab: 'plan', planBatch: [], planReviewQueue: [], editingRecipeId: null, recipeSelectMode: false, recipeSelection: [] });
+  };
+  const advancePlanReview = (remaining: string[]) => {
+    if (remaining.length) { patch({ planReviewQueue: remaining }); loadPlanReview(remaining[0]); }
+    else finishPlanFlow();
+  };
+  const commitPlan = () => {
+    const queue = st.planBatch.map((b) => b.recipeId).filter((rid) => {
+      const r = kitchen.recipes.find((x) => x.id === rid);
+      return !!r && (r.ingredients || []).some((ing) => ing.trackable !== false && ing.amount == null);
+    });
+    if (!queue.length) { finishPlanFlow(); return; }
+    patch({ planReviewQueue: queue });
+    loadPlanReview(queue[0]);
+  };
+  const savePlanReviewAndAdvance = () => {
+    const rid = st.editingRecipeId;
+    const r = rid ? kitchen.recipes.find((x) => x.id === rid) : null;
+    if (r) {
+      kitchen.saveRecipe(r.id, {
+        name: r.name, ingredients: draftIngredients(), instructions: r.instructions || '',
+        photoDataUrl: r.photoDataUrl || '', servings: r.servings, nutrition: r.nutrition || null,
+      });
+    }
+    advancePlanReview(st.planReviewQueue.slice(1));
+  };
+  const skipPlanReview = () => advancePlanReview(st.planReviewQueue.slice(1));
 
   // ---------- home stats ----------
   const statsFor = (locId: LocationId) => {
@@ -516,19 +619,12 @@ export default function App() {
     : decorated.filter((i) => i.location === 'pantry' && normBin(i.bin || 'Other') === normBin(st.selectedPantryBin)).length;
 
   // ---------- grocery screen ----------
-  const taggedGrocerySections: Section[] = buildGrocerySections(decorated, kitchen.groceryExtras, st.storeFilter, toggleAuto, removeManual).map((sec) => ({
-    sectionTitle: sec.sectionTitle,
-    rows: sec.rows.map((row) => {
-      const names = matchedRecipeNeedsByItemId[row.id];
-      if (!names || !names.length) return row;
-      return { ...row, hasMeta: true, meta: (row.meta ? row.meta + ' · ' : '') + 'For: ' + names.join(', ') };
-    }),
-  }));
-  const grocerySections: Section[] = recipeGroceryRows.length
-    ? [{ sectionTitle: 'For Recipes', rows: recipeGroceryRows }, ...taggedGrocerySections]
-    : taggedGrocerySections;
+  const stockGrocerySections: Section[] = buildGrocerySections(decorated, kitchen.groceryExtras, st.storeFilter, toggleAuto, removeManual);
+  const grocerySections: Section[] = groceryPlanRows.length
+    ? [{ sectionTitle: 'For the Meal Plan', rows: groceryPlanRows }, ...stockGrocerySections]
+    : stockGrocerySections;
   const storeFilterChips = storeChipsForGrocery(decorated, st.storeFilter, setStoreFilter);
-  const groceryTotal = decorated.filter((i) => i.needsRestock && (!st.storeFilter || i.store === st.storeFilter)).length + kitchen.groceryExtras.length + recipeGroceryRows.length;
+  const groceryTotal = decorated.filter((i) => i.needsRestock && (!st.storeFilter || i.store === st.storeFilter)).length + kitchen.groceryExtras.length + groceryPlanRows.length;
 
   // ---------- search ----------
   const searchQ = st.searchQuery.trim().toLowerCase();
@@ -582,7 +678,7 @@ export default function App() {
   const unitChipsArr = UNITS.map((u) => ({ label: u, style: neutralChipStyle(draft.unit === u), onClick: pickUnit(u) }));
   const receiptStoreChips = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(st.receiptStore === s.id), onClick: () => patch({ receiptStore: s.id }) }));
 
-  const showNav = st.screen === 'home' || st.screen === 'grocery' || st.screen === 'recipes' || st.screen === 'search';
+  const showNav = st.screen === 'home' || st.screen === 'grocery' || st.screen === 'recipes' || st.screen === 'plan';
   const receiptIncludedCount = st.receiptDraftItems.filter((i) => i.include).length;
 
   // Screens with a Back/Cancel link — a rightward swipe runs the same handler.
@@ -600,6 +696,8 @@ export default function App() {
     recipeAdd1: cancelRecipeAdd,
     recipeAdd2: backToRecipeAdd1,
     recipeAdd3: backToRecipeAdd2,
+    search: closeSearch,
+    planAdd: cancelPlanAdd,
   };
   const swipeBackHandler: (() => void) | null = swipeBackHandlers[st.screen] ?? null;
 
@@ -616,8 +714,33 @@ export default function App() {
     recipeAdd1: st.editingRecipeId ? 'recipeDetail' : 'recipes',
     recipeAdd2: 'recipeAdd1',
     recipeAdd3: 'recipeAdd2',
+    search: st.searchReturnScreen,
+    planAdd: 'recipes',
   };
   const swipeBackTarget: Screen | null = swipeBackHandler ? (swipeBackTargets[st.screen] ?? null) : null;
+
+  const ingredientEditorRows = () => st.recipeIngredientDrafts.map((ing) => ({
+    ingId: ing.ingId, name: ing.name, quantity: ing.quantity,
+    amount: ing.amount != null ? String(ing.amount) : '',
+    summaryLine: [
+      ing.category ? CATEGORY_MAP[ing.category].label : 'Uncategorized',
+      ing.amount != null ? `${ing.amount}${ing.unit && ing.unit !== 'count' ? ' ' + ing.unit : ''}` : (ing.quantity || null),
+    ].filter(Boolean).join(' · '),
+    catDot: ing.category ? CATEGORY_MAP[ing.category].color : '#a6a496',
+    isExpanded: st.expandedRecipeIngredientId === ing.ingId,
+    needsAmount: ing.trackable !== false && ing.amount == null,
+    onToggleExpand: toggleIngredientExpand(ing.ingId),
+    onNameChange: (e: ChangeEvent<HTMLInputElement>) => updateIngredientDraft(ing.ingId, { name: e.target.value }),
+    onQuantityChange: (e: ChangeEvent<HTMLInputElement>) => updateIngredientDraft(ing.ingId, { quantity: e.target.value }),
+    onAmountChange: setIngredientAmount(ing.ingId),
+    unitChips: RECIPE_UNITS.map((u) => ({ label: u, style: neutralChipStyle((ing.unit || 'count') === u), onClick: pickIngredientUnit(ing.ingId, u) })),
+    categoryChips: [{ id: null as string | null, label: 'None' }, ...CATEGORIES].map((c) => ({
+      id: c.id, label: c.label,
+      style: c.id === null ? neutralChipStyle(ing.category === null) : chipStyle(ing.category === c.id, (c as { color?: string }).color || '#000'),
+      onClick: pickIngredientCategory(ing.ingId, c.id),
+    })),
+    onRemove: removeIngredientDraft(ing.ingId),
+  }));
 
   const renderScreen = (s: Screen): ReactNode => {
     switch (s) {
@@ -629,6 +752,7 @@ export default function App() {
             restockCount={restockCount}
             expiringSoonCount={expiringSoonCount}
             goGrocery={goGrocery}
+            onSearch={openSearch}
             pantryStats={pantryStats} fridgeStats={fridgeStats} freezerStats={freezerStats}
             spareStats={spareStats} spareFreezerStats={spareFreezerStats}
             openPantry={openLocation('pantry')} openFridge={openLocation('fridge')} openFreezer={openLocation('freezer')}
@@ -752,6 +876,7 @@ export default function App() {
             query={st.searchQuery}
             onQueryChange={setSearchQuery}
             onClear={clearSearchQuery}
+            onClose={closeSearch}
             itemRows={searchItemRows}
             recipeRows={searchRecipeRows}
           />
@@ -766,6 +891,69 @@ export default function App() {
             empty={groceryTotal === 0}
           />
         );
+      case 'plan':
+        return (
+          <PlanScreen
+            weekLabel={weekRangeLabel(weekStart)}
+            days={weekDayIsos.map((iso) => ({
+              iso, ...dayLabel(iso), isToday: iso === todayIso,
+              entries: (planEntriesByDate[iso] || []).map((e) => ({
+                id: e.id, name: e.recipeName, servings: e.servings, ready: e.ready,
+                onInc: setPlanServings(e.id, 1, e.servings), onDec: setPlanServings(e.id, -1, e.servings),
+                onRemove: removePlanEntry(e.id),
+                onOpen: openRecipe('plan')(e.recipeId),
+              })),
+            }))}
+            hasAnyEntries={kitchen.mealPlanEntries.length > 0}
+            shopWeekActive={shopWeekActive}
+            onToggleShop={setShopWeek}
+            onPrevWeek={() => changeWeek(-1)}
+            onNextWeek={() => changeWeek(1)}
+            needRows={groceryPlanRows.map((r) => ({ id: r.id, text: r.name, sub: r.meta || '' }))}
+            onGoGrocery={goGrocery}
+            onGoRecipes={goRecipesTab}
+          />
+        );
+      case 'planAdd':
+        return (
+          <PlanAddScreen
+            rows={st.planBatch.map((b) => {
+              const r = kitchen.recipes.find((x) => x.id === b.recipeId);
+              return {
+                recipeId: b.recipeId, name: r ? r.name : 'Recipe', date: b.date, servings: b.servings,
+                dayChips: planDayChoices.map((iso) => {
+                  const dl = dayLabel(iso);
+                  return { label: `${dl.weekday} ${dl.day}`, active: b.date === iso, onClick: () => updatePlanBatchRow(b.recipeId, { date: iso }) };
+                }),
+                onServings: (e: ChangeEvent<HTMLInputElement>) => {
+                  const n = parseInt(e.target.value, 10);
+                  updatePlanBatchRow(b.recipeId, { servings: Number.isFinite(n) && n > 0 ? n : 1 });
+                },
+              };
+            })}
+            onCancel={cancelPlanAdd}
+            onConfirm={commitPlan}
+          />
+        );
+      case 'planReview':
+        return (
+          <RecipeAdd2Screen
+            title={`Amounts for ${st.recipeNameDraft}`}
+            subtitle={
+              st.planReviewQueue.length > 1
+                ? `Confirm amounts so this can be shopped for. ${st.planReviewQueue.length - 1} more recipe${st.planReviewQueue.length > 2 ? 's' : ''} after this.`
+                : 'Confirm amounts so this recipe can be shopped for.'
+            }
+            loading={st.recipeParseStatus === 'loading'}
+            rows={ingredientEditorRows()}
+            onAddBlank={addBlankIngredient}
+            onBack={skipPlanReview}
+            backLabel="Skip"
+            onContinue={savePlanReviewAndAdvance}
+            continueLabel={st.planReviewQueue.length > 1 ? 'Next recipe' : 'Add to plan'}
+            continueDisabled={false}
+          />
+        );
       case 'recipes':
         return (
           <RecipesScreen
@@ -776,11 +964,14 @@ export default function App() {
               id: r.id, name: r.name, hasPhoto: !!r.photoDataUrl, photoDataUrl: r.photoDataUrl || '',
               readyLabel: r.readyLabel,
               readyBadgeStyle: r.readiness.ready ? { background: hexToRgba('#4d7a1e', 0.16), color: '#3d6218' } : { background: section, color: muted },
-              plannedLabel: r.planned ? 'Planned ✓' : 'Plan to Cook',
-              plannedStyle: r.planned ? { background: accent, color: 'white' } : { background: card, border: `1.5px solid ${border}`, color: accent },
-              onTogglePlanned: togglePlanned(r.id, !!r.planned),
+              selected: st.recipeSelection.includes(r.id),
+              onToggleSelect: toggleRecipeSelected(r.id),
               onOpen: openRecipe('recipes')(r.id),
             }))}
+            selectMode={st.recipeSelectMode}
+            selectionCount={st.recipeSelection.length}
+            onToggleSelectMode={toggleRecipeSelectMode}
+            onAddSelectedToPlan={startAddToPlan}
             empty={kitchen.recipes.length === 0}
             filteredEmpty={kitchen.recipes.length > 0 && filteredRecipes.length === 0}
             onAdd={startAddRecipe}
@@ -802,7 +993,6 @@ export default function App() {
             onClose={closeRecipeDetail}
             onEdit={startEditRecipe}
             onDelete={deleteRecipeHandler}
-            onTogglePlanned={togglePlanned(selectedRecipe.id, !!selectedRecipe.planned)}
           />
         ) : null;
       case 'recipeAdd1':
@@ -824,24 +1014,15 @@ export default function App() {
       case 'recipeAdd2':
         return (
           <RecipeAdd2Screen
-            rows={st.recipeIngredientDrafts.map((ing) => ({
-              ingId: ing.ingId, name: ing.name, quantity: ing.quantity,
-              summaryLine: (ing.category ? CATEGORY_MAP[ing.category].label : 'Uncategorized') + (ing.quantity ? ' · ' + ing.quantity : ''),
-              catDot: ing.category ? CATEGORY_MAP[ing.category].color : '#a6a496',
-              isExpanded: st.expandedRecipeIngredientId === ing.ingId,
-              onToggleExpand: toggleIngredientExpand(ing.ingId),
-              onNameChange: (e: ChangeEvent<HTMLInputElement>) => updateIngredientDraft(ing.ingId, { name: e.target.value }),
-              onQuantityChange: (e: ChangeEvent<HTMLInputElement>) => updateIngredientDraft(ing.ingId, { quantity: e.target.value }),
-              categoryChips: [{ id: null as string | null, label: 'None' }, ...CATEGORIES].map((c) => ({
-                id: c.id, label: c.label,
-                style: c.id === null ? neutralChipStyle(ing.category === null) : chipStyle(ing.category === c.id, (c as { color?: string }).color || '#000'),
-                onClick: pickIngredientCategory(ing.ingId, c.id),
-              })),
-              onRemove: removeIngredientDraft(ing.ingId),
-            }))}
+            title="Review Ingredients"
+            subtitle="Tap any ingredient to fix its name, amount, or category before saving."
+            loading={false}
+            rows={ingredientEditorRows()}
             onAddBlank={addBlankIngredient}
             onBack={backToRecipeAdd1}
+            backLabel="Back"
             onContinue={goToRecipeAdd3}
+            continueLabel="Continue"
             continueDisabled={st.recipeIngredientDrafts.length === 0}
           />
         );
@@ -882,7 +1063,7 @@ export default function App() {
       {showNav && (
         <BottomNav
           activeTab={st.tab}
-          onHome={goHomeTab} onRecipes={goRecipesTab} onGrocery={goGroceryTab} onAdd={startAdd} onSearch={goSearchTab}
+          onHome={goHomeTab} onRecipes={goRecipesTab} onPlan={goPlanTab} onGrocery={goGroceryTab} onAdd={startAdd}
         />
       )}
     </div>
@@ -894,12 +1075,12 @@ export default function App() {
 // ============================================================
 
 function HomeScreen(props: {
-  totalItems: number; dbStatus: string; restockCount: number; expiringSoonCount: number; goGrocery: () => void;
+  totalItems: number; dbStatus: string; restockCount: number; expiringSoonCount: number; goGrocery: () => void; onSearch: () => void;
   pantryStats: { count: number; alerts: number }; fridgeStats: { count: number; alerts: number };
   freezerStats: { count: number; alerts: number }; spareStats: { count: number; alerts: number }; spareFreezerStats: { count: number; alerts: number };
   openPantry: () => void; openFridge: () => void; openFreezer: () => void; openSpare: () => void; openSpareFreezer: () => void;
 }) {
-  const { totalItems, dbStatus, restockCount, expiringSoonCount, goGrocery, pantryStats, fridgeStats, freezerStats, spareStats, spareFreezerStats, openPantry, openFridge, openFreezer, openSpare, openSpareFreezer } = props;
+  const { totalItems, dbStatus, restockCount, expiringSoonCount, goGrocery, onSearch, pantryStats, fridgeStats, freezerStats, spareStats, spareFreezerStats, openPantry, openFridge, openFreezer, openSpare, openSpareFreezer } = props;
   const showSyncBanner = dbStatus === 'unavailable' || dbStatus === 'error';
   const cards = [
     { label: 'Pantry', stats: pantryStats, onOpen: openPantry, icon: 'box' as const, color: LOCATION_MAP['pantry'].color },
@@ -910,9 +1091,16 @@ function HomeScreen(props: {
   ];
   return (
     <div className="noscroll absolute inset-0 overflow-y-auto px-5 pt-6 pb-[100px]">
-      <div className="text-[13px] font-semibold tracking-wide uppercase" style={{ color: accent }}>Kitchen Inventory</div>
-      <div className="text-[26px] font-extrabold mt-1" style={{ color: text }}>Our Kitchen</div>
-      <div className="text-sm mt-1" style={{ color: muted }}>{totalItems} items across 5 locations</div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-semibold tracking-wide uppercase" style={{ color: accent }}>Kitchen Inventory</div>
+          <div className="text-[26px] font-extrabold mt-1" style={{ color: text }}>Our Kitchen</div>
+          <div className="text-sm mt-1" style={{ color: muted }}>{totalItems} items across 5 locations</div>
+        </div>
+        <button onClick={onSearch} aria-label="Search" className="shrink-0 mt-1 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: section }}>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+        </button>
+      </div>
 
       {showSyncBanner && (
         <div className="mt-3.5 px-3.5 py-2.5 rounded-xl text-[12.5px] font-semibold" style={{ background: section, border: `1.5px solid ${border}`, color: muted }}>
@@ -1363,16 +1551,18 @@ function SearchScreen(props: {
   query: string;
   onQueryChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
+  onClose: () => void;
   itemRows: SearchRow[];
   recipeRows: SearchRow[];
 }) {
-  const { query, onQueryChange, onClear, itemRows, recipeRows } = props;
+  const { query, onQueryChange, onClear, onClose, itemRows, recipeRows } = props;
   const trimmed = query.trim();
   const totalCount = itemRows.length + recipeRows.length;
   return (
     <div className="absolute inset-0 flex flex-col">
-      <div className="px-5 pt-6 pb-3 shrink-0">
-        <div className="text-[26px] font-extrabold" style={{ color: text }}>Search</div>
+      <div className="px-5 pt-5 pb-3 shrink-0">
+        <BackLink label="Done" onClick={onClose} />
+        <div className="text-[26px] font-extrabold mt-2" style={{ color: text }}>Search</div>
         <div className="flex items-center gap-2 mt-3.5 h-[46px] rounded-xl px-3.5" style={{ border: `1.5px solid ${border}`, background: card }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
           <input
@@ -1467,19 +1657,33 @@ function GroceryScreen(props: {
 
 function RecipesScreen(props: {
   filterChips: { id: string; label: string; style: CSSProperties; onClick: () => void }[];
-  recipes: { id: string; name: string; hasPhoto: boolean; photoDataUrl: string; readyLabel: string; readyBadgeStyle: CSSProperties; plannedLabel: string; plannedStyle: CSSProperties; onTogglePlanned: () => void; onOpen: () => void }[];
+  recipes: { id: string; name: string; hasPhoto: boolean; photoDataUrl: string; readyLabel: string; readyBadgeStyle: CSSProperties; selected: boolean; onToggleSelect: () => void; onOpen: () => void }[];
+  selectMode: boolean; selectionCount: number; onToggleSelectMode: () => void; onAddSelectedToPlan: () => void;
   empty: boolean; filteredEmpty: boolean; onAdd: () => void;
 }) {
-  const { filterChips, recipes, empty, filteredEmpty, onAdd } = props;
+  const { filterChips, recipes, selectMode, selectionCount, onToggleSelectMode, onAddSelectedToPlan, empty, filteredEmpty, onAdd } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-6 pb-3 shrink-0">
-        <div className="text-[26px] font-extrabold" style={{ color: text }}>Recipes</div>
+        <div className="flex items-center justify-between">
+          <div className="text-[26px] font-extrabold" style={{ color: text }}>Recipes</div>
+          {!empty && (
+            <div onClick={onToggleSelectMode} className="text-[13.5px] font-bold cursor-pointer" style={{ color: accent }}>
+              {selectMode ? 'Done' : 'Select'}
+            </div>
+          )}
+        </div>
         <div className="flex gap-2 mt-3.5">{filterChips.map((c) => <Chip key={c.id} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
-        <button onClick={onAdd} className="w-full h-11 mt-3 rounded-xl text-white text-[14.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: accent }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-          Add Recipe
-        </button>
+        {selectMode ? (
+          <button onClick={onAddSelectedToPlan} disabled={selectionCount === 0} className="w-full h-11 mt-3 rounded-xl text-white text-[14.5px] font-bold disabled:opacity-50" style={{ background: accent }}>
+            Add {selectionCount || ''} to meal plan
+          </button>
+        ) : (
+          <button onClick={onAdd} className="w-full h-11 mt-3 rounded-xl text-white text-[14.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: accent }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            Add Recipe
+          </button>
+        )}
       </div>
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
         {empty && (
@@ -1487,7 +1691,17 @@ function RecipesScreen(props: {
         )}
         {filteredEmpty && <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>Nothing&apos;s ready to cook right now.</div>}
         {recipes.map((r) => (
-          <div key={r.id} onClick={r.onOpen} className="flex gap-3 rounded-2xl p-3 mb-2.5 cursor-pointer" style={{ background: card, border: `1.5px solid ${border}` }}>
+          <div
+            key={r.id}
+            onClick={selectMode ? r.onToggleSelect : r.onOpen}
+            className="flex gap-3 rounded-2xl p-3 mb-2.5 cursor-pointer items-center"
+            style={{ background: card, border: `1.5px solid ${r.selected ? accent : border}` }}
+          >
+            {selectMode && (
+              <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center" style={{ border: `2px solid ${r.selected ? accent : '#a6a496'}`, background: r.selected ? accent : 'transparent' }}>
+                {r.selected && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7" /></svg>}
+              </div>
+            )}
             <div className="w-16 h-16 rounded-xl shrink-0 overflow-hidden flex items-center justify-center" style={{ background: section }}>
               {r.hasPhoto ? <img src={r.photoDataUrl} alt="" className="w-full h-full object-cover" /> : (
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9a2 2 0 0 1 2 2v15l-6.5-3.5L4 20V5a2 2 0 0 1 2-2z" /></svg>
@@ -1495,10 +1709,7 @@ function RecipesScreen(props: {
             </div>
             <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
               <div className="text-[14.5px] font-semibold truncate" style={{ color: text }}>{r.name}</div>
-              <div className="flex items-center gap-2">
-                <div className="text-[11.5px] font-bold px-2 py-0.5 rounded-full inline-block" style={r.readyBadgeStyle}>{r.readyLabel}</div>
-              </div>
-              <div onClick={(e) => { e.stopPropagation(); r.onTogglePlanned(); }} className="text-[12px] font-bold px-2.5 py-1 rounded-lg inline-block w-fit cursor-pointer" style={r.plannedStyle}>{r.plannedLabel}</div>
+              <div className="text-[11.5px] font-bold px-2 py-0.5 rounded-full inline-block w-fit" style={r.readyBadgeStyle}>{r.readyLabel}</div>
             </div>
           </div>
         ))}
@@ -1510,9 +1721,9 @@ function RecipesScreen(props: {
 function RecipeDetailScreen(props: {
   recipe: Recipe & { readiness: ReturnType<typeof recipeReadiness>; readyLabel: string };
   ingredientRows: { ingId: string; text: string; statusText: string; statusColor: string; dotColor: string }[];
-  onClose: () => void; onEdit: () => void; onDelete: () => void; onTogglePlanned: () => void;
+  onClose: () => void; onEdit: () => void; onDelete: () => void;
 }) {
-  const { recipe, ingredientRows, onClose, onEdit, onDelete, onTogglePlanned } = props;
+  const { recipe, ingredientRows, onClose, onEdit, onDelete } = props;
   const hasServings = !!recipe.servings;
   const hasNutrition = !!(recipe.nutrition && Number.isFinite(recipe.nutrition.calories));
   const needsServings = !hasNutrition && !hasServings;
@@ -1528,10 +1739,6 @@ function RecipeDetailScreen(props: {
         <div className="text-[22px] font-extrabold mt-4.5" style={{ color: text }}>{recipe.name}</div>
         <div className="inline-block mt-2.5 px-3 py-1.5 rounded-full text-[12.5px] font-bold" style={recipe.readiness.ready ? { background: hexToRgba('#4d7a1e', 0.16), color: '#3d6218' } : { background: section, color: muted }}>{recipe.readyLabel}</div>
         {hasServings && <div className="text-[12.5px] mt-2" style={{ color: muted }}>Makes {recipe.servings} serving{recipe.servings === 1 ? '' : 's'}</div>}
-
-        <div onClick={onTogglePlanned} className="mt-3.5 text-center p-2.5 rounded-2xl text-sm font-bold cursor-pointer" style={recipe.planned ? { background: accent, color: 'white' } : { background: card, border: `1.5px solid ${border}`, color: accent }}>
-          {recipe.planned ? 'Planned to Cook ✓' : 'Plan to Cook'}
-        </div>
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Ingredients</div>
         {ingredientRows.map((ing) => (
@@ -1626,17 +1833,33 @@ function RecipeAdd1Screen(props: {
   );
 }
 
+interface IngredientEditorRow {
+  ingId: string; name: string; quantity: string; amount: string; summaryLine: string; catDot: string;
+  isExpanded: boolean; needsAmount: boolean;
+  onToggleExpand: () => void;
+  onNameChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onQuantityChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onAmountChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  unitChips: { label: string; style: CSSProperties; onClick: () => void }[];
+  categoryChips: { id: string | null; label: string; style: CSSProperties; onClick: () => void }[];
+  onRemove: () => void;
+}
+
 function RecipeAdd2Screen(props: {
-  rows: { ingId: string; name: string; quantity: string; summaryLine: string; catDot: string; isExpanded: boolean; onToggleExpand: () => void; onNameChange: (e: ChangeEvent<HTMLInputElement>) => void; onQuantityChange: (e: ChangeEvent<HTMLInputElement>) => void; categoryChips: { id: string | null; label: string; style: CSSProperties; onClick: () => void }[]; onRemove: () => void }[];
-  onAddBlank: () => void; onBack: () => void; onContinue: () => void; continueDisabled: boolean;
+  title: string; subtitle: string; loading: boolean;
+  rows: IngredientEditorRow[];
+  onAddBlank: () => void;
+  onBack: () => void; backLabel: string;
+  onContinue: () => void; continueLabel: string; continueDisabled: boolean;
 }) {
-  const { rows, onAddBlank, onBack, onContinue, continueDisabled } = props;
+  const { title, subtitle, loading, rows, onAddBlank, onBack, backLabel, onContinue, continueLabel, continueDisabled } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
-        <BackLink label="Back" onClick={onBack} />
-        <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Review Ingredients</div>
-        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Tap any ingredient to fix the name or category before saving.</div>
+        <BackLink label={backLabel} onClick={onBack} />
+        <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>{title}</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>{subtitle}</div>
+        {loading && <div className="mt-4 text-center text-[13.5px] font-semibold" style={{ color: muted }}>Reading amounts…</div>}
 
         {rows.map((row) => {
           const bg = row.catDot;
@@ -1649,6 +1872,7 @@ function RecipeAdd2Screen(props: {
                   <div className="text-[14.5px] font-semibold capitalize" style={{ color: fg }}>{row.name}</div>
                   <div className="text-xs mt-0.5" style={{ color: fgMuted }}>{row.summaryLine}</div>
                 </div>
+                {row.needsAmount && <div className="shrink-0 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.92)', color: errorColor }}>needs amount</div>}
                 <div onClick={row.onToggleExpand} className="cursor-pointer shrink-0">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={fgMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
                 </div>
@@ -1656,7 +1880,12 @@ function RecipeAdd2Screen(props: {
               {row.isExpanded && (
                 <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${fgMuted}` }}>
                   <input value={row.name} onChange={row.onNameChange} placeholder="Ingredient name" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
-                  <input value={row.quantity} onChange={row.onQuantityChange} placeholder="Quantity (optional)" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none mt-2" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
+                  <input value={row.amount} onChange={row.onAmountChange} inputMode="decimal" placeholder="Amount (e.g. 2)" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none mt-2" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
+                  <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: fgMuted }}>Unit</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {row.unitChips.map((c) => <Chip key={c.label} label={c.label} style={c.style} onClick={c.onClick} />)}
+                  </div>
+                  <input value={row.quantity} onChange={row.onQuantityChange} placeholder="As written (optional, e.g. “a handful”)" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none mt-3" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
                   <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3.5 mb-1.5" style={{ color: fgMuted }}>Category</div>
                   <div className="flex flex-wrap gap-1.5">
                     {row.categoryChips.map((c) => <Chip key={String(c.id)} label={c.label} style={c.style} onClick={c.onClick} />)}
@@ -1671,7 +1900,7 @@ function RecipeAdd2Screen(props: {
         <div onClick={onAddBlank} className="mt-3.5 text-center p-3 rounded-xl text-[13.5px] font-semibold cursor-pointer" style={{ border: `1.5px dashed ${border}`, color: accent }}>+ Add an ingredient</div>
       </div>
       <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
-        <button onClick={onContinue} disabled={continueDisabled} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold disabled:opacity-50" style={{ background: accent }}>Continue</button>
+        <button onClick={onContinue} disabled={continueDisabled} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold disabled:opacity-50" style={{ background: accent }}>{continueLabel}</button>
       </div>
     </div>
   );
@@ -1715,32 +1944,145 @@ function RecipeAdd3Screen(props: {
   );
 }
 
-function BottomNav(props: { activeTab: string; onHome: () => void; onRecipes: () => void; onGrocery: () => void; onAdd: () => void; onSearch: () => void }) {
-  const { activeTab, onHome, onRecipes, onGrocery, onAdd, onSearch } = props;
-  const homeColor = activeTab === 'home' ? accent : '#a6a496';
-  const groceryColor = activeTab === 'grocery' ? accent : '#a6a496';
-  const recipesColor = activeTab === 'recipes' ? accent : '#a6a496';
-  const searchColor = activeTab === 'search' ? accent : '#a6a496';
+function PlanScreen(props: {
+  weekLabel: string;
+  days: { iso: string; weekday: string; day: string; isToday: boolean; entries: { id: string; name: string; servings: number; ready: boolean; onInc: () => void; onDec: () => void; onRemove: () => void; onOpen: () => void }[] }[];
+  hasAnyEntries: boolean;
+  shopWeekActive: boolean; onToggleShop: () => void;
+  onPrevWeek: () => void; onNextWeek: () => void;
+  needRows: { id: string; text: string; sub: string }[];
+  onGoGrocery: () => void; onGoRecipes: () => void;
+}) {
+  const { weekLabel, days, hasAnyEntries, shopWeekActive, onToggleShop, onPrevWeek, onNextWeek, needRows, onGoGrocery, onGoRecipes } = props;
+  const weekHasEntries = days.some((d) => d.entries.length);
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="px-5 pt-6 pb-3 shrink-0">
+        <div className="text-[26px] font-extrabold" style={{ color: text }}>Meal Plan</div>
+        <div className="flex items-center justify-between mt-3">
+          <button onClick={onPrevWeek} aria-label="Previous week" className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: section }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+          </button>
+          <div className="text-[14.5px] font-bold" style={{ color: text }}>{weekLabel}</div>
+          <button onClick={onNextWeek} aria-label="Next week" className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: section }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+          </button>
+        </div>
+        <div onClick={onToggleShop} className="flex items-center justify-between mt-3 px-3.5 py-2.5 rounded-xl cursor-pointer" style={{ background: shopWeekActive ? accent : card, border: `1.5px solid ${shopWeekActive ? accent : border}` }}>
+          <div className="text-[13.5px] font-bold" style={{ color: shopWeekActive ? 'white' : text }}>Shop for this week</div>
+          <div className="w-10 h-6 rounded-full flex items-center px-0.5" style={{ background: shopWeekActive ? 'rgba(255,255,255,0.35)' : '#d8d2c2' }}>
+            <div className="w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: shopWeekActive ? 'translateX(16px)' : 'translateX(0)' }} />
+          </div>
+        </div>
+      </div>
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
+        {!hasAnyEntries && (
+          <div className="text-center py-14 px-5">
+            <div className="text-sm" style={{ color: muted }}>Nothing planned yet.</div>
+            <button onClick={onGoRecipes} className="mt-4 px-5 py-2.5 rounded-xl text-white text-sm font-bold" style={{ background: accent }}>Pick recipes</button>
+          </div>
+        )}
+        {hasAnyEntries && days.map((d) => (
+          <div key={d.iso} className="mt-3.5">
+            <div className="text-[12.5px] font-bold uppercase tracking-wide mb-1.5" style={{ color: d.isToday ? accent : muted }}>
+              {d.weekday} {d.day}{d.isToday ? ' · Today' : ''}
+            </div>
+            {d.entries.length === 0 && <div className="text-[12.5px] px-1 py-1" style={{ color: '#a6a496' }}>—</div>}
+            {d.entries.map((e) => (
+              <div key={e.id} className="flex items-center gap-2.5 rounded-2xl px-3.5 py-3 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: e.ready ? '#3d6218' : errorColor }} />
+                <div onClick={e.onOpen} className="flex-1 min-w-0 cursor-pointer">
+                  <div className="text-[14px] font-semibold truncate" style={{ color: text }}>{e.name}</div>
+                  <div className="text-[12px] mt-0.5" style={{ color: muted }}>{e.ready ? 'Ready to cook' : 'Missing ingredients'}</div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={e.onDec} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>−</button>
+                  <div className="text-[12.5px] font-bold w-14 text-center" style={{ color: text }}>{e.servings} srv</div>
+                  <button onClick={e.onInc} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>+</button>
+                </div>
+                <div onClick={e.onRemove} className="shrink-0 cursor-pointer" aria-label="Remove">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6a496" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+        {shopWeekActive && weekHasEntries && (
+          <div className="mt-6">
+            <div className="text-[12.5px] font-bold uppercase tracking-wide mb-2" style={{ color: muted }}>This week&apos;s shopping</div>
+            {needRows.length === 0 && <div className="text-[13px]" style={{ color: '#a6a496' }}>Everything for this week is already on hand.</div>}
+            {needRows.map((n) => (
+              <div key={n.id} className="rounded-xl px-3.5 py-2.5 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
+                <div className="text-[13.5px] font-semibold" style={{ color: text }}>{n.text}</div>
+                <div className="text-[12px] mt-0.5" style={{ color: muted }}>{n.sub}</div>
+              </div>
+            ))}
+            <div onClick={onGoGrocery} className="mt-1 text-center text-[13px] font-semibold cursor-pointer" style={{ color: accent }}>Open in Grocery list →</div>
+          </div>
+        )}
+        {hasAnyEntries && (
+          <div onClick={onGoRecipes} className="mt-6 text-center text-[13px] font-semibold cursor-pointer" style={{ color: accent }}>+ Add more recipes from Recipes</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlanAddScreen(props: {
+  rows: { recipeId: string; name: string; date: string; servings: number; dayChips: { label: string; active: boolean; onClick: () => void }[]; onServings: (e: ChangeEvent<HTMLInputElement>) => void }[];
+  onCancel: () => void; onConfirm: () => void;
+}) {
+  const { rows, onCancel, onConfirm } = props;
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
+        <BackLink label="Cancel" onClick={onCancel} />
+        <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Add to Meal Plan</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Set a day and servings for each. You may be asked to confirm ingredient amounts next.</div>
+        {rows.map((row) => (
+          <div key={row.recipeId} className="rounded-2xl p-3.5 mt-3" style={{ background: card, border: `1.5px solid ${border}` }}>
+            <div className="text-[14.5px] font-semibold" style={{ color: text }}>{row.name}</div>
+            <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Day</div>
+            <div className="noscroll flex gap-1.5 overflow-x-auto pb-1">
+              {row.dayChips.map((c) => (
+                <Chip key={c.label} label={c.label} style={c.active ? { background: accent, color: 'white', border: 'none', fontWeight: 700 } : { background: 'white', color: text, border: `1.5px solid ${border}`, fontWeight: 500 }} onClick={c.onClick} />
+              ))}
+            </div>
+            <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Servings to make</div>
+            <input value={String(row.servings)} onChange={row.onServings} inputMode="numeric" className="w-24 h-[42px] rounded-[10px] px-3 text-sm outline-none" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />
+          </div>
+        ))}
+      </div>
+      <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
+        <button onClick={onConfirm} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold" style={{ background: accent }}>Add {rows.length} to plan</button>
+      </div>
+    </div>
+  );
+}
+
+function BottomNav(props: { activeTab: string; onHome: () => void; onRecipes: () => void; onPlan: () => void; onGrocery: () => void; onAdd: () => void }) {
+  const { activeTab, onHome, onRecipes, onPlan, onGrocery, onAdd } = props;
+  const col = (t: string) => (activeTab === t ? accent : '#a6a496');
   return (
     <div className="relative shrink-0 h-[86px] flex items-start justify-around pt-2.5" style={{ background: card, borderTop: `1px solid ${border}` }}>
       <div onClick={onHome} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={homeColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11.5 12 4l8 7.5" /><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9" /></svg>
-        <div className="text-[11.5px] font-semibold" style={{ color: homeColor }}>Home</div>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={col('home')} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11.5 12 4l8 7.5" /><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9" /></svg>
+        <div className="text-[11.5px] font-semibold" style={{ color: col('home') }}>Home</div>
       </div>
       <div onClick={onRecipes} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={recipesColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9a2 2 0 0 1 2 2v15l-6.5-3.5L4 20V5a2 2 0 0 1 2-2z" /></svg>
-        <div className="text-[11.5px] font-semibold" style={{ color: recipesColor }}>Recipes</div>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={col('recipes')} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9a2 2 0 0 1 2 2v15l-6.5-3.5L4 20V5a2 2 0 0 1 2-2z" /></svg>
+        <div className="text-[11.5px] font-semibold" style={{ color: col('recipes') }}>Recipes</div>
       </div>
       <div onClick={onAdd} className="relative -top-[22px] w-14 h-14 rounded-full flex items-center justify-center cursor-pointer shadow-lg" style={{ background: accent }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
       </div>
-      <div onClick={onGrocery} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={groceryColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" /><path d="M3 4h2l2.4 12.2a1.5 1.5 0 0 0 1.48 1.3h8.24a1.5 1.5 0 0 0 1.47-1.2L21 8H6" /></svg>
-        <div className="text-[11.5px] font-semibold" style={{ color: groceryColor }}>Grocery</div>
+      <div onClick={onPlan} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={col('plan')} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M4 10h16M8 3v4M16 3v4M9 14h6" /></svg>
+        <div className="text-[11.5px] font-semibold" style={{ color: col('plan') }}>Plan</div>
       </div>
-      <div onClick={onSearch} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={searchColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-        <div className="text-[11.5px] font-semibold" style={{ color: searchColor }}>Search</div>
+      <div onClick={onGrocery} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={col('grocery')} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" /><path d="M3 4h2l2.4 12.2a1.5 1.5 0 0 0 1.48 1.3h8.24a1.5 1.5 0 0 0 1.47-1.2L21 8H6" /></svg>
+        <div className="text-[11.5px] font-semibold" style={{ color: col('grocery') }}>Grocery</div>
       </div>
     </div>
   );

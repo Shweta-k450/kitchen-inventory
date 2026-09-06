@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { CATEGORIES, CATEGORY_MAP, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES } from './constants';
+import { CATEGORIES, CATEGORY_MAP, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS } from './constants';
 import type { Item, LocationId, Ingredient, Recipe } from './types';
 
 export function daysUntil(dateStr: string | null): number | null {
@@ -357,11 +357,142 @@ export function buildIngredientRow(raw: Partial<Ingredient> & { text?: string },
   const text = raw && raw.text && String(raw.text).trim() ? String(raw.text).trim() : 'Ingredient ' + (idx + 1);
   const name = raw && raw.name && String(raw.name).trim() ? String(raw.name).trim().toLowerCase() : text.toLowerCase();
   const quantity = raw && raw.quantity != null && String(raw.quantity).trim() ? String(raw.quantity).trim() : '';
+  const amountRaw = raw ? Number(raw.amount) : NaN;
+  const amount = Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : null;
+  const unit = amount != null && raw && raw.unit && RECIPE_UNITS.includes(raw.unit) ? raw.unit : null;
   return {
     ingId: 'i' + idx + '-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
-    text, name, quantity, category: catId,
+    text, name, quantity, amount, unit, category: catId,
     trackable: raw && raw.trackable === false ? false : true,
   };
+}
+
+// ---------- units & meal-plan shopping ----------
+const MASS_G: Record<string, number> = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+const VOL_ML: Record<string, number> = { mL: 1, L: 1000, tsp: 4.92892, tbsp: 14.7868, cup: 236.588 };
+
+type Dim = 'mass' | 'volume' | 'count';
+
+function unitDim(unit: string | null | undefined): Dim | null {
+  if (!unit) return null;
+  if (unit in MASS_G) return 'mass';
+  if (unit in VOL_ML) return 'volume';
+  return 'count'; // count, pack, clove, slice, pinch
+}
+
+/** Convert an amount+unit to a canonical value (grams / mL / each). Null when not enough info. */
+function toCanonical(amount: number | null | undefined, unit: string | null | undefined): { dim: Dim; value: number } | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  const dim = unitDim(unit);
+  if (dim === 'mass') return { dim, value: amount * MASS_G[unit as string] };
+  if (dim === 'volume') return { dim, value: amount * VOL_ML[unit as string] };
+  return { dim: 'count', value: amount };
+}
+
+/** Turn a canonical value back into a friendly rounded amount + unit for a shopping line. */
+function fromCanonical(value: number, dim: Dim): string {
+  if (dim === 'count') return String(Math.max(1, Math.ceil(value - 0.001)));
+  if (dim === 'mass') {
+    if (value >= 1000) return `${Math.ceil((value / 1000) * 4) / 4} kg`;
+    return `${Math.max(10, Math.ceil(value / 10) * 10)} g`;
+  }
+  if (value >= 1000) return `${Math.ceil((value / 1000) * 4) / 4} L`;
+  return `${Math.max(10, Math.ceil(value / 10) * 10)} mL`;
+}
+
+/** Monday (local) of the week containing `d`, as 'YYYY-MM-DD'. */
+export function mondayOf(d: Date): string {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (x.getDay() + 6) % 7; // 0 = Monday
+  x.setDate(x.getDate() - dow);
+  return isoDate(x);
+}
+
+export function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return isoDate(new Date(y, m - 1, d + n));
+}
+
+/** The 7 ISO dates Mon..Sun for a week whose Monday is `mondayIso`. */
+export function weekDates(mondayIso: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(mondayIso, i));
+}
+
+export function weekRangeLabel(mondayIso: string): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const [y1, m1, d1] = mondayIso.split('-').map(Number);
+  const sun = addDays(mondayIso, 6).split('-').map(Number);
+  const a = `${months[m1 - 1]} ${d1}`;
+  const b = m1 === sun[1] ? String(sun[2]) : `${months[sun[1] - 1]} ${sun[2]}`;
+  return `${a} – ${b}, ${sun[0] !== y1 ? sun[0] : y1}`;
+}
+
+export function dayLabel(iso: string): { weekday: string; day: string } {
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return { weekday: wd[dt.getDay()], day: `${m}/${d}` };
+}
+
+export interface MealPlanGroceryRow {
+  key: string;
+  label: string;
+  buyText: string; // '' when it couldn't be quantified
+  recipeNames: string[];
+}
+
+/**
+ * Aggregate the ingredient needs across a set of meal-plan entries, netting against
+ * inventory item quantities where the units are compatible.
+ */
+export function buildMealPlanGroceryRows(
+  entries: { recipeId: string; servings: number }[],
+  recipes: Recipe[],
+  items: Item[],
+): MealPlanGroceryRow[] {
+  const recipeById = new Map<string, Recipe>(recipes.map((r) => [r.id, r] as [string, Recipe]));
+  // key -> { label, dim, need, unstructured, names }
+  const acc = new Map<string, { label: string; dim: Dim | null; need: number; unstructured: boolean; names: Set<string> }>();
+
+  entries.forEach((e) => {
+    const r = recipeById.get(e.recipeId);
+    if (!r) return;
+    const scale = r.servings && r.servings > 0 ? e.servings / r.servings : 1;
+    (r.ingredients || []).forEach((ing) => {
+      if (ing.trackable === false) return;
+      const key = (ing.name || ing.text || '').toLowerCase().trim();
+      if (!key) return;
+      let g = acc.get(key);
+      if (!g) { g = { label: titleCaseWords(ing.name || ing.text), dim: null, need: 0, unstructured: false, names: new Set() }; acc.set(key, g); }
+      g.names.add(r.name);
+      const canon = toCanonical(ing.amount, ing.unit);
+      if (!canon) { g.unstructured = true; return; }
+      if (g.dim == null) g.dim = canon.dim;
+      if (g.dim === canon.dim) g.need += canon.value * scale;
+      else g.unstructured = true; // mixed dimensions for the same ingredient
+    });
+  });
+
+  const rows: MealPlanGroceryRow[] = [];
+  for (const [key, g] of acc.entries()) {
+    const base = { key, label: g.label, recipeNames: [...g.names] };
+    if (g.dim == null || g.need <= 0) {
+      // nothing structured to quantify — show name-only
+      rows.push({ ...base, buyText: '' });
+      continue;
+    }
+    const match = matchIngredient({ ingId: '', text: g.label, name: key, quantity: '', category: null, trackable: true }, items);
+    const haveCanon = match.matchedItem ? toCanonical(match.matchedItem.quantity, match.matchedItem.unit) : null;
+    const have = haveCanon && haveCanon.dim === g.dim ? haveCanon.value : 0;
+    const buy = g.need - have;
+    if (have > 0 && buy <= 0) continue; // already have enough on hand
+    rows.push({ ...base, buyText: fromCanonical(buy, g.dim) });
+  }
+  return rows;
 }
 
 export interface MatchResult {

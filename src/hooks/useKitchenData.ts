@@ -6,7 +6,9 @@ import {
 } from 'firebase/firestore';
 import { getDb, firebaseConfigured } from '@/lib/firebase';
 import { INITIAL_ITEMS } from '@/lib/constants';
-import type { Item, Recipe, ManualGroceryItem } from '@/lib/types';
+import type { Item, Recipe, ManualGroceryItem, MealPlanEntry } from '@/lib/types';
+
+const PLAN_SETTINGS_ID = '__settings__';
 
 export type SyncStatus = 'connecting' | 'synced' | 'unavailable' | 'error';
 
@@ -14,6 +16,8 @@ export function useKitchenData() {
   const [items, setItems] = useState<Item[]>([]);
   const [groceryExtras, setGroceryExtras] = useState<ManualGroceryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [mealPlanEntries, setMealPlanEntries] = useState<MealPlanEntry[]>([]);
+  const [mealPlanShopWeek, setMealPlanShopWeek] = useState<string | null>(null);
   const [status, setStatus] = useState<SyncStatus>(firebaseConfigured ? 'connecting' : 'unavailable');
   const seededRef = useRef(false);
 
@@ -64,10 +68,31 @@ export function useKitchenData() {
       () => {}
     );
 
+    const unsubPlan = onSnapshot(
+      collection(db, 'mealPlan'),
+      (snap) => {
+        const entries: MealPlanEntry[] = [];
+        let shopWeek: string | null = null;
+        snap.docs.forEach((d) => {
+          if (d.id === PLAN_SETTINGS_ID) {
+            const s = d.data() as { shopWeekOf?: string | null };
+            shopWeek = s.shopWeekOf ?? null;
+          } else {
+            const e = d.data() as Omit<MealPlanEntry, 'id'>;
+            entries.push({ id: d.id, recipeId: e.recipeId, date: e.date, servings: e.servings });
+          }
+        });
+        setMealPlanEntries(entries);
+        setMealPlanShopWeek(shopWeek);
+      },
+      () => {}
+    );
+
     return () => {
       unsubItems();
       unsubGrocery();
       unsubRecipes();
+      unsubPlan();
     };
   }, []);
 
@@ -135,10 +160,39 @@ export function useKitchenData() {
     deleteDoc(doc(db, 'recipes', id)).catch(() => {});
   }, []);
 
-  const toggleRecipePlanned = useCallback((id: string, current: boolean) => {
+  const addMealPlanEntry = useCallback((recipeId: string, date: string, servings: number) => {
     const db = getDb();
     if (!db) return;
-    updateDoc(doc(db, 'recipes', id), { planned: !current }).catch(() => {});
+    const id = 'mpe' + Date.now() + Math.floor(Math.random() * 1000);
+    setDoc(doc(db, 'mealPlan', id), { recipeId, date, servings }).catch(() => {});
+  }, []);
+
+  const addMealPlanEntries = useCallback((rows: { recipeId: string; date: string; servings: number }[]) => {
+    const db = getDb();
+    if (!db || !rows.length) return;
+    const batch = writeBatch(db);
+    rows.forEach((r, i) => {
+      batch.set(doc(db, 'mealPlan', 'mpe' + Date.now() + '-' + i), r);
+    });
+    batch.commit().catch(() => {});
+  }, []);
+
+  const updateMealPlanEntry = useCallback((id: string, patch: Partial<MealPlanEntry>) => {
+    const db = getDb();
+    if (!db) return;
+    updateDoc(doc(db, 'mealPlan', id), patch).catch(() => {});
+  }, []);
+
+  const removeMealPlanEntry = useCallback((id: string) => {
+    const db = getDb();
+    if (!db) return;
+    deleteDoc(doc(db, 'mealPlan', id)).catch(() => {});
+  }, []);
+
+  const setShopWeek = useCallback((mondayIso: string | null) => {
+    const db = getDb();
+    if (!db) return;
+    setDoc(doc(db, 'mealPlan', PLAN_SETTINGS_ID), { shopWeekOf: mondayIso }).catch(() => {});
   }, []);
 
   /**
@@ -155,14 +209,23 @@ export function useKitchenData() {
       return;
     }
     try {
-      const [itemsSnap, groceriesSnap, recipesSnap] = await Promise.all([
+      const [itemsSnap, groceriesSnap, recipesSnap, planSnap] = await Promise.all([
         getDocs(collection(db, 'items')),
         getDocs(collection(db, 'groceryExtras')),
         getDocs(collection(db, 'recipes')),
+        getDocs(collection(db, 'mealPlan')),
       ]);
       setItems(itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Item, 'id'>) })));
       setGroceryExtras(groceriesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ManualGroceryItem, 'id'>) })));
       setRecipes(recipesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Recipe, 'id'>) })));
+      const planEntries: MealPlanEntry[] = [];
+      let shopWeek: string | null = null;
+      planSnap.docs.forEach((d) => {
+        if (d.id === PLAN_SETTINGS_ID) shopWeek = (d.data() as { shopWeekOf?: string | null }).shopWeekOf ?? null;
+        else { const e = d.data() as Omit<MealPlanEntry, 'id'>; planEntries.push({ id: d.id, recipeId: e.recipeId, date: e.date, servings: e.servings }); }
+      });
+      setMealPlanEntries(planEntries);
+      setMealPlanShopWeek(shopWeek);
       setStatus('synced');
     } catch {
       setStatus('error');
@@ -170,10 +233,11 @@ export function useKitchenData() {
   }, []);
 
   return {
-    items, groceryExtras, recipes, status,
+    items, groceryExtras, recipes, mealPlanEntries, mealPlanShopWeek, status,
     setItemStatus, updateItem, saveItem, removeItem, addReceiptItems,
     addManualGroceryItem, removeManualGroceryItem,
-    saveRecipe, deleteRecipe, toggleRecipePlanned,
+    saveRecipe, deleteRecipe,
+    addMealPlanEntry, addMealPlanEntries, updateMealPlanEntry, removeMealPlanEntry, setShopWeek,
     refresh,
   };
 }

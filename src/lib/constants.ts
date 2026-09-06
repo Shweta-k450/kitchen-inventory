@@ -67,8 +67,11 @@ export const STATUS_LABELS: Record<string, string> = { low: 'Low', out: 'Out', '
 
 export const BIN_PRESETS = ['Baking Bin', 'Noodle and Pasta Bin', 'Condiment Shelf', 'Snack Shelf', 'Indian Spices Bin', 'Indian Pantry Bin', 'Drinks Shelf', 'Spice Drawer', 'Breakfast Shelf', 'Dry Ingredients Shelf', 'Island'];
 
-// Quantity units. 'count' means a plain number of items (no unit shown).
+// Quantity units for inventory items. 'count' means a plain number (no unit shown).
 export const UNITS = ['count', 'kg', 'g', 'L', 'mL', 'lb', 'oz', 'pack'];
+
+// Units allowed on recipe ingredients — a superset of UNITS with cooking measures.
+export const RECIPE_UNITS = ['count', 'g', 'kg', 'mL', 'L', 'tsp', 'tbsp', 'cup', 'oz', 'lb', 'clove', 'slice', 'pinch', 'pack'];
 
 export const INITIAL_ITEMS: Item[] = [
   { id: 'p1', name: 'Basmati Rice', category: 'grains', location: 'pantry', bin: 'Dry Ingredients Shelf', store: 'indian-store', status: 'ok', dateType: null, date: null },

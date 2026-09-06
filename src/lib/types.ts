@@ -31,7 +31,9 @@ export interface Ingredient {
   ingId: string;
   text: string;
   name: string;
-  quantity: string;
+  quantity: string; // free text as written, kept for display
+  amount?: number | null; // structured amount, for meal-plan shopping math
+  unit?: string | null; // g kg mL L tsp tbsp cup oz lb count clove slice pinch pack
   category: string | null;
   trackable: boolean;
 }
@@ -49,9 +51,16 @@ export interface Recipe {
   ingredients: Ingredient[];
   instructions: string;
   photoDataUrl: string;
-  planned: boolean;
   servings: number | null;
   nutrition: Nutrition | null;
+}
+
+/** One recipe scheduled onto a day of the rolling meal plan. */
+export interface MealPlanEntry {
+  id: string;
+  recipeId: string;
+  date: string; // 'YYYY-MM-DD'
+  servings: number; // servings to make that day
 }
 
 export interface ManualGroceryItem {
