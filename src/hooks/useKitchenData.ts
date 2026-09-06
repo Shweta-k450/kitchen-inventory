@@ -77,6 +77,13 @@ export function useKitchenData() {
     updateDoc(doc(db, 'items', id), patch).catch(() => {});
   }, []);
 
+  /** Patch arbitrary fields on an existing item (location, bin, …). */
+  const updateItem = useCallback((id: string, patch: Partial<Item>) => {
+    const db = getDb();
+    if (!db) return;
+    updateDoc(doc(db, 'items', id), patch).catch(() => {});
+  }, []);
+
   const saveItem = useCallback((id: string | null, body: Omit<Item, 'id'>) => {
     const db = getDb();
     if (!db) return;
@@ -164,7 +171,7 @@ export function useKitchenData() {
 
   return {
     items, groceryExtras, recipes, status,
-    setItemStatus, saveItem, removeItem, addReceiptItems,
+    setItemStatus, updateItem, saveItem, removeItem, addReceiptItems,
     addManualGroceryItem, removeManualGroceryItem,
     saveRecipe, deleteRecipe, toggleRecipePlanned,
     refresh,

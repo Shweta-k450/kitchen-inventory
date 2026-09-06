@@ -132,6 +132,21 @@ export default function App() {
     if (st.selectedItemId) kitchen.removeItem(st.selectedItemId);
     patch({ screen: st.itemDetailReturnTo });
   };
+  const setItemLocation = (loc: LocationId) => () => {
+    const id = st.selectedItemId;
+    if (!id) return;
+    const cur = kitchen.items.find((i) => i.id === id);
+    const body: Partial<Item> = { location: loc };
+    if (loc === 'pantry') {
+      if (!cur || !cur.bin) body.bin = 'Unsorted';
+    } else {
+      body.bin = '';
+    }
+    kitchen.updateItem(id, body);
+  };
+  const setItemBin = (b: string) => () => {
+    if (st.selectedItemId) kitchen.updateItem(st.selectedItemId, { bin: b });
+  };
 
   // ---------- add flow ----------
   const startAdd = () => patch({ screen: 'add1', addReturnTab: st.tab });
@@ -622,15 +637,23 @@ export default function App() {
             onBack={backToPantry}
           />
         );
-      case 'itemDetail':
-        return selectedItem ? (
+      case 'itemDetail': {
+        if (!selectedItem) return null;
+        const si = selectedItem;
+        const binNames = Array.from(new Set([...BIN_PRESETS, 'Unsorted', si.bin].filter((b) => b)));
+        return (
           <ItemDetailScreen
-            item={selectedItem}
-            statusOptions={statusOptionDefs.map((o) => ({ label: o.label, style: statusStyle(selectedItem.status === o.key, o.color), onClick: setStatus(o.key) }))}
+            key={si.id}
+            item={si}
+            statusOptions={statusOptionDefs.map((o) => ({ label: o.label, style: statusStyle(si.status === o.key, o.color), onClick: setStatus(o.key) }))}
+            locationOptions={LOCATIONS.map((l) => ({ label: l.label, style: chipStyle(si.location === l.id, l.color), onClick: setItemLocation(l.id) }))}
+            isPantry={si.location === 'pantry'}
+            binOptions={binNames.map((b) => ({ label: b, style: neutralChipStyle(si.bin === b), onClick: setItemBin(b) }))}
             onClose={closeItemDetail}
             onRemove={removeItemHandler}
           />
-        ) : null;
+        );
+      }
       case 'add1':
         return (
           <Add1Screen
@@ -996,8 +1019,16 @@ function PantryBinsScreen(props: {
   );
 }
 
-function ItemDetailScreen(props: { item: ReturnType<typeof decorateItem>; statusOptions: { label: string; style: CSSProperties; onClick: () => void }[]; onClose: () => void; onRemove: () => void }) {
-  const { item, statusOptions, onClose, onRemove } = props;
+function ItemDetailScreen(props: {
+  item: ReturnType<typeof decorateItem>;
+  statusOptions: { label: string; style: CSSProperties; onClick: () => void }[];
+  locationOptions: { label: string; style: CSSProperties; onClick: () => void }[];
+  isPantry: boolean;
+  binOptions: { label: string; style: CSSProperties; onClick: () => void }[];
+  onClose: () => void;
+  onRemove: () => void;
+}) {
+  const { item, statusOptions, locationOptions, isPantry, binOptions, onClose, onRemove } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
@@ -1017,6 +1048,20 @@ function ItemDetailScreen(props: { item: ReturnType<typeof decorateItem>; status
             <div key={o.label} onClick={o.onClick} className="text-center px-1 py-2.5 rounded-xl text-[12.5px] font-semibold cursor-pointer" style={o.style}>{o.label}</div>
           ))}
         </div>
+
+        <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Location</div>
+        <div className="flex flex-wrap gap-2">
+          {locationOptions.map((o) => <Chip key={o.label} label={o.label} style={o.style} onClick={o.onClick} />)}
+        </div>
+        {isPantry && (
+          <>
+            <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Cupboard / Bin</div>
+            <div className="flex flex-wrap gap-2">
+              {binOptions.map((o) => <Chip key={o.label} label={o.label} style={o.style} onClick={o.onClick} />)}
+            </div>
+          </>
+        )}
+
         {item.hasDate && (
           <>
             <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>{item.dateType === 'consume-by' ? 'Consume By' : 'Expiry'}</div>
