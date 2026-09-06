@@ -41,6 +41,7 @@ html, body {
   color: var(--color-text);
   font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
 }
 
 input::placeholder, textarea::placeholder {

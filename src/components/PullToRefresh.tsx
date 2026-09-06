@@ -32,7 +32,8 @@ export default function PullToRefresh({
   const [refreshing, setRefreshing] = useState(false);
   const pullRef = useRef(0);
   const refreshingRef = useRef(false);
-  const gestureRef = useRef<{ startY: number; active: boolean; scrollEl: HTMLElement | null }>({
+  const gestureRef = useRef<{ startX: number; startY: number; active: boolean; scrollEl: HTMLElement | null }>({
+    startX: 0,
     startY: 0,
     active: false,
     scrollEl: null,
@@ -70,7 +71,7 @@ export default function PullToRefresh({
       if (refreshingRef.current) return;
       const touch = e.touches[0];
       const scrollEl = (e.target as HTMLElement).closest('.noscroll') as HTMLElement | null;
-      gestureRef.current = { startY: touch.clientY, active: !!scrollEl && scrollEl.scrollTop <= 0, scrollEl };
+      gestureRef.current = { startX: touch.clientX, startY: touch.clientY, active: !!scrollEl && scrollEl.scrollTop <= 0, scrollEl };
     }
 
     function onTouchMove(e: TouchEvent) {
@@ -85,6 +86,12 @@ export default function PullToRefresh({
       const touch = e.touches[0];
       const delta = touch.clientY - g.startY;
       if (delta <= 0) {
+        setDragging(false);
+        setPullBoth(0);
+        return;
+      }
+      // Yield to a horizontally-dominant drag (the swipe-back gesture).
+      if (Math.abs(touch.clientX - g.startX) > delta) {
         setDragging(false);
         setPullBoth(0);
         return;

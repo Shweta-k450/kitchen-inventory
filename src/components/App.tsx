@@ -16,6 +16,7 @@ import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi 
 import type { Item, LocationId, Ingredient, Recipe } from '@/lib/types';
 import { Chip, BackLink } from './Chip';
 import PullToRefresh from './PullToRefresh';
+import SwipeBack from './SwipeBack';
 
 type Screen =
   | 'home' | 'location' | 'itemDetail' | 'add1' | 'add2' | 'add3'
@@ -517,9 +518,27 @@ export default function App() {
   const showNav = st.screen === 'home' || st.screen === 'grocery' || st.screen === 'recipes' || st.screen === 'search';
   const receiptIncludedCount = st.receiptDraftItems.filter((i) => i.include).length;
 
+  // Screens with a Back/Cancel link — a rightward swipe runs the same handler.
+  // Tab roots are absent, so swipe-back is disabled there.
+  const swipeBackHandlers: Partial<Record<Screen, () => void>> = {
+    location: backToHome,
+    itemDetail: closeItemDetail,
+    add1: cancelAdd,
+    receiptScan: backToAdd1FromReceipt,
+    receiptReview: cancelReceiptReview,
+    add2: backToAdd1,
+    add3: backToAdd2,
+    recipeDetail: closeRecipeDetail,
+    recipeAdd1: cancelRecipeAdd,
+    recipeAdd2: backToRecipeAdd1,
+    recipeAdd3: backToRecipeAdd2,
+  };
+  const swipeBackHandler: (() => void) | null = swipeBackHandlers[st.screen] ?? null;
+
   return (
     <div className="min-h-dvh flex flex-col bg-[#ead7c8]" style={{ color: text }}>
       <div className="flex-1 min-h-0 relative">
+      <SwipeBack enabled={swipeBackHandler !== null} onBack={swipeBackHandler ?? (() => {})} screenKey={st.screen}>
       <PullToRefresh onRefresh={kitchen.refresh}>
         {st.screen === 'home' && (
           <HomeScreen
@@ -731,6 +750,7 @@ export default function App() {
           />
         )}
       </PullToRefresh>
+      </SwipeBack>
       </div>
 
       {showNav && (
