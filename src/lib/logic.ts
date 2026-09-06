@@ -129,14 +129,74 @@ export interface Section {
   rows: SectionRow[];
 }
 
+// ---------- pantry bins ----------
+// Bins are free-text, so "Oil Drawer", "oil drawer" and " Oil Drawer " are the same
+// bin. Everything keys off the normalized name; the first non-normalized spelling
+// seen (or a matching preset's casing) is what gets shown.
+const PRESET_BIN_ORDER = BIN_PRESETS.map((b) => b.trim().toLowerCase());
+
+/** Normalized key for a bin name — trims and lowercases so casing/whitespace variants collapse. */
+export function normBin(bin: string | null | undefined): string {
+  return (bin || '').trim().toLowerCase();
+}
+
+/** Display casing for a bin: a preset's canonical spelling if it matches, else the trimmed name. */
+export function displayBin(bin: string): string {
+  const n = normBin(bin);
+  return BIN_PRESETS.find((b) => normBin(b) === n) || bin.trim();
+}
+
+/** Distinct pantry bins in use plus the presets, deduped by normalized name (presets first, then custom A–Z). */
+export function knownPantryBins(items: Item[]): string[] {
+  const presetNorms = new Set(PRESET_BIN_ORDER);
+  const custom = new Map<string, string>();
+  items.forEach((i) => {
+    if (i.location !== 'pantry') return;
+    const n = normBin(i.bin);
+    if (!n || presetNorms.has(n) || custom.has(n)) return;
+    custom.set(n, i.bin.trim());
+  });
+  return [...BIN_PRESETS, ...[...custom.values()].sort((a, b) => a.localeCompare(b))];
+}
+
+/** Fold a typed-in bin name onto an existing bin (in any casing), else return it trimmed. */
+export function canonicalBin(input: string, items: Item[]): string {
+  const t = input.trim();
+  if (!t) return t;
+  const n = normBin(t);
+  return knownPantryBins(items).find((b) => normBin(b) === n) || t;
+}
+
+/** Dedupe a list of bin names by normalized key, keeping the first spelling seen. */
+export function dedupeBins(list: (string | null | undefined)[]): string[] {
+  const m = new Map<string, string>();
+  list.forEach((b) => {
+    const n = normBin(b);
+    if (n && !m.has(n)) m.set(n, (b || '').trim());
+  });
+  return [...m.values()];
+}
+
+interface BinGroup { title: string; items: DecoratedItem[]; }
+
+function groupPantryByBin(decorated: DecoratedItem[]): BinGroup[] {
+  const groups = new Map<string, BinGroup>();
+  decorated.filter((i) => i.location === 'pantry').forEach((i) => {
+    const raw = i.bin || 'Other';
+    const key = normBin(raw);
+    let g = groups.get(key);
+    if (!g) { g = { title: displayBin(raw), items: [] }; groups.set(key, g); }
+    g.items.push(i);
+  });
+  return [...groups.keys()]
+    .sort((a, b) => PRESET_BIN_ORDER.indexOf(a) - PRESET_BIN_ORDER.indexOf(b))
+    .map((k) => groups.get(k)!);
+}
+
 export function buildPantrySections(decorated: DecoratedItem[], openItem: (id: string) => () => void): Section[] {
-  const items = decorated.filter((i) => i.location === 'pantry');
-  const map: Record<string, DecoratedItem[]> = {};
-  items.forEach((i) => { const k = i.bin || 'Other'; (map[k] = map[k] || []).push(i); });
-  const keys = Object.keys(map).sort((a, b) => BIN_PRESETS.indexOf(a) - BIN_PRESETS.indexOf(b));
-  return keys.map((k) => ({
-    sectionTitle: k,
-    rows: map[k].map((i) => ({
+  return groupPantryByBin(decorated).map((g) => ({
+    sectionTitle: g.title,
+    rows: g.items.map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
       meta: i.catLabel + (i.dateText ? ' · ' + i.dateText : ''),
       metaColor: i.dateText ? i.dateColor : '#7a7452',
@@ -154,20 +214,17 @@ export interface PantryBinSummary {
 
 /** One entry per pantry bin (empty-bin items bucket under "Other"), ordered like buildPantrySections. */
 export function buildPantryBinSummaries(decorated: DecoratedItem[]): PantryBinSummary[] {
-  const items = decorated.filter((i) => i.location === 'pantry');
-  const map: Record<string, DecoratedItem[]> = {};
-  items.forEach((i) => { const k = i.bin || 'Other'; (map[k] = map[k] || []).push(i); });
-  const keys = Object.keys(map).sort((a, b) => BIN_PRESETS.indexOf(a) - BIN_PRESETS.indexOf(b));
-  return keys.map((k) => ({
-    bin: k,
-    count: map[k].length,
-    alerts: map[k].filter((i) => i.needsRestock || i.soonOrUrgent).length,
+  return groupPantryByBin(decorated).map((g) => ({
+    bin: g.title,
+    count: g.items.length,
+    alerts: g.items.filter((i) => i.needsRestock || i.soonOrUrgent).length,
   }));
 }
 
 /** Items in a single pantry bin, grouped by category (like the fridge/freezer screens). */
 export function buildPantryBinCategorySections(decorated: DecoratedItem[], bin: string, openItem: (id: string) => () => void): Section[] {
-  const items = decorated.filter((i) => i.location === 'pantry' && (i.bin || 'Other') === bin);
+  const target = normBin(bin);
+  const items = decorated.filter((i) => i.location === 'pantry' && normBin(i.bin || 'Other') === target);
   const map: Record<string, DecoratedItem[]> = {};
   items.forEach((i) => { (map[i.category] = map[i.category] || []).push(i); });
   return CATEGORIES.filter((c) => map[c.id]).map((c) => ({

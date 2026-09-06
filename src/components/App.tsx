@@ -4,11 +4,11 @@ import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode
 import { useKitchenData } from '@/hooks/useKitchenData';
 import {
   CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS,
-  BIN_PRESETS, DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
+  DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
   decorateItem, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
-  buildPantryBinSummaries, buildPantryBinCategorySections,
+  buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
   type Section,
@@ -191,7 +191,7 @@ export default function App() {
       name: d.name.trim() ? d.name.trim() : 'New Item',
       category: d.category || 'grains',
       location: d.location || 'pantry',
-      bin: (d.location || 'pantry') === 'pantry' ? (d.bin || 'Unsorted') : '',
+      bin: (d.location || 'pantry') === 'pantry' ? canonicalBin(d.bin || 'Unsorted', kitchen.items) : '',
       store: d.store || null,
       status: 'ok',
       dateType: d.skipDate ? null : d.dateType,
@@ -280,7 +280,7 @@ export default function App() {
         name: it.name.trim() ? it.name.trim() : 'New Item',
         category: it.category,
         location: it.location,
-        bin: it.location === 'pantry' ? (it.bin.trim() ? it.bin.trim() : 'Unsorted') : '',
+        bin: it.location === 'pantry' ? canonicalBin(it.bin.trim() ? it.bin.trim() : 'Unsorted', kitchen.items) : '',
         store: st.receiptStore || null,
         status: 'ok',
         dateType: it.skipDate ? null : it.dateType,
@@ -488,7 +488,7 @@ export default function App() {
   const pantryBinLabel = pantryBinIsAll ? 'All Items' : (st.selectedPantryBin ?? 'Other');
   const pantryBinCount = pantryBinIsAll
     ? pantryStats.count
-    : decorated.filter((i) => i.location === 'pantry' && (i.bin || 'Other') === st.selectedPantryBin).length;
+    : decorated.filter((i) => i.location === 'pantry' && normBin(i.bin || 'Other') === normBin(st.selectedPantryBin)).length;
 
   // ---------- grocery screen ----------
   const taggedGrocerySections: Section[] = buildGrocerySections(decorated, kitchen.groceryExtras, st.storeFilter, toggleAuto, removeManual).map((sec) => ({
@@ -552,7 +552,7 @@ export default function App() {
   const draft = st.addDraft;
   const categoryChips = CATEGORIES.map((c) => ({ id: c.id, label: c.label, style: chipStyle(draft.category === c.id, c.color), onClick: pickCategory(c.id) }));
   const locationChips = LOCATIONS.map((l) => ({ id: l.id, label: l.label, style: neutralChipStyle(draft.location === l.id), onClick: pickLocation(l.id) }));
-  const binChipsArr = BIN_PRESETS.map((b) => ({ label: b, style: neutralChipStyle(draft.bin === b), onClick: pickBin(b) }));
+  const binChipsArr = knownPantryBins(kitchen.items).map((b) => ({ label: b, style: neutralChipStyle(normBin(draft.bin) === normBin(b)), onClick: pickBin(b) }));
   const storeChipsArr = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(draft.store === s.id), onClick: pickStore(s.id) }));
   const receiptStoreChips = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(st.receiptStore === s.id), onClick: () => patch({ receiptStore: s.id }) }));
 
@@ -640,7 +640,7 @@ export default function App() {
       case 'itemDetail': {
         if (!selectedItem) return null;
         const si = selectedItem;
-        const binNames = Array.from(new Set([...BIN_PRESETS, 'Unsorted', si.bin].filter((b) => b)));
+        const binNames = dedupeBins(['Unsorted', ...knownPantryBins(kitchen.items), si.bin]);
         return (
           <ItemDetailScreen
             key={si.id}
@@ -648,7 +648,7 @@ export default function App() {
             statusOptions={statusOptionDefs.map((o) => ({ label: o.label, style: statusStyle(si.status === o.key, o.color), onClick: setStatus(o.key) }))}
             locationOptions={LOCATIONS.map((l) => ({ label: l.label, style: chipStyle(si.location === l.id, l.color), onClick: setItemLocation(l.id) }))}
             isPantry={si.location === 'pantry'}
-            binOptions={binNames.map((b) => ({ label: b, style: neutralChipStyle(si.bin === b), onClick: setItemBin(b) }))}
+            binOptions={binNames.map((b) => ({ label: b, style: neutralChipStyle(normBin(si.bin) === normBin(b)), onClick: setItemBin(b) }))}
             onClose={closeItemDetail}
             onRemove={removeItemHandler}
           />
