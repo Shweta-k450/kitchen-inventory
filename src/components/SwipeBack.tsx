@@ -100,7 +100,7 @@ export default function SwipeBack({
 
       if (g.mode === 'horiz') {
         e.preventDefault();
-        const width = el.clientWidth || 320;
+        const width = wrapRef.current?.clientWidth || 320;
         setDxBoth(Math.max(0, Math.min(width, dX)));
       }
     }
@@ -113,7 +113,7 @@ export default function SwipeBack({
       }
       g.mode = 'idle';
       setDragging(false);
-      const threshold = Math.max(TRIGGER_MIN_PX, (el.clientWidth || 320) * TRIGGER_FRACTION);
+      const threshold = Math.max(TRIGGER_MIN_PX, (wrapRef.current?.clientWidth || 320) * TRIGGER_FRACTION);
       if (dxRef.current >= threshold && !firedRef.current) {
         firedRef.current = true;
         setDxBoth(0);
