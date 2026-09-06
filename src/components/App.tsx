@@ -15,7 +15,7 @@ import {
   planCookEffects, servingsLeft, preparedFreshness,
   type Section, type SectionRow, type CookEffect,
 } from '@/lib/logic';
-import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi } from '@/lib/apiClient';
+import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi, importRecipeApi } from '@/lib/apiClient';
 import type { Item, LocationId, Ingredient, Recipe, PreparedFood } from '@/lib/types';
 import { Chip, BackLink } from './Chip';
 import PullToRefresh from './PullToRefresh';
@@ -66,6 +66,9 @@ interface UiState {
   recipeNameDraft: string;
   recipeIngredientTextDraft: string;
   recipeInstructionsDraft: string;
+  recipeUrlDraft: string;
+  recipeImportStatus: 'idle' | 'loading' | 'error';
+  recipeImportError: string;
   recipeParseStatus: 'idle' | 'loading' | 'error' | 'unavailable';
   recipeParseErrorText: string;
   recipeIngredientDrafts: Ingredient[];
@@ -94,6 +97,7 @@ const initialState: UiState = {
   receiptStatus: 'idle', receiptErrorText: '', receiptDraftItems: [], receiptStore: null, expandedReceiptItemId: null,
   recipeFilter: 'all', selectedRecipeId: null, editingRecipeId: null,
   recipeNameDraft: '', recipeIngredientTextDraft: '', recipeInstructionsDraft: '',
+  recipeUrlDraft: '', recipeImportStatus: 'idle', recipeImportError: '',
   recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [], expandedRecipeIngredientId: null,
   recipePhotoDataUrl: '', recipePhotoStatus: 'idle', recipeServingsDraft: '', recipeSaveStatus: 'idle',
   mealPlanWeek: '', recipeSelectMode: false, recipeSelection: [], planBatch: [], planReviewQueue: [], planEntryEditId: null,
@@ -353,6 +357,7 @@ export default function App() {
   const startAddRecipe = () => patch({
     screen: 'recipeAdd1', editingRecipeId: null, recipeNameDraft: '', recipeIngredientTextDraft: '',
     recipeInstructionsDraft: '', recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [],
+    recipeUrlDraft: '', recipeImportStatus: 'idle', recipeImportError: '',
     recipePhotoDataUrl: '', recipePhotoStatus: 'idle', recipeServingsDraft: '', recipeSaveStatus: 'idle',
   });
 
@@ -380,6 +385,29 @@ export default function App() {
 
   // ---------- recipes: add/edit step 1 ----------
   const setRecipeNameDraft = (e: ChangeEvent<HTMLInputElement>) => patch({ recipeNameDraft: e.target.value });
+  const setRecipeUrlDraft = (e: ChangeEvent<HTMLInputElement>) => patch({ recipeUrlDraft: e.target.value });
+  const importRecipeFromUrl = async () => {
+    const url = st.recipeUrlDraft.trim();
+    if (!url || st.recipeImportStatus === 'loading') return;
+    patch({ recipeImportStatus: 'loading', recipeImportError: '' });
+    const { recipe, error } = await importRecipeApi(url);
+    if (error || !recipe) {
+      const msg = error === 'bad_url' ? "That doesn't look like a valid link."
+        : error === 'timeout' ? 'That page took too long to respond.'
+        : error === 'no_recipe' ? "Couldn't find a recipe on that page — try pasting it in below."
+        : (error === 'not_configured' || error === 'network_error') ? "Recipe import isn't available right now."
+        : "Couldn't read that link — try pasting the recipe in below.";
+      patch({ recipeImportStatus: 'error', recipeImportError: msg });
+      return;
+    }
+    patch({
+      recipeImportStatus: 'idle', recipeImportError: '',
+      recipeNameDraft: recipe.name || st.recipeNameDraft,
+      recipeServingsDraft: recipe.servings ? String(recipe.servings) : st.recipeServingsDraft,
+      recipeIngredientTextDraft: recipe.ingredientsText || st.recipeIngredientTextDraft,
+      recipeInstructionsDraft: recipe.instructions || st.recipeInstructionsDraft,
+    });
+  };
   const setRecipeServingsDraft = (e: ChangeEvent<HTMLInputElement>) => patch({ recipeServingsDraft: e.target.value });
   const setRecipeIngredientTextDraft = (e: ChangeEvent<HTMLTextAreaElement>) => patch({ recipeIngredientTextDraft: e.target.value });
   const setRecipeInstructionsDraft = (e: ChangeEvent<HTMLTextAreaElement>) => patch({ recipeInstructionsDraft: e.target.value });
@@ -1096,6 +1124,8 @@ export default function App() {
         return (
           <RecipeAdd1Screen
             title={st.editingRecipeId ? 'Edit Recipe' : 'Add a Recipe'}
+            url={st.recipeUrlDraft} onUrlChange={setRecipeUrlDraft} onImport={importRecipeFromUrl}
+            importLoading={st.recipeImportStatus === 'loading'} importError={st.recipeImportError}
             name={st.recipeNameDraft} onNameChange={setRecipeNameDraft}
             servings={st.recipeServingsDraft} onServingsChange={setRecipeServingsDraft}
             ingredientText={st.recipeIngredientTextDraft} onIngredientTextChange={setRecipeIngredientTextDraft}
@@ -1890,20 +1920,33 @@ function RecipeDetailScreen(props: {
 }
 
 function RecipeAdd1Screen(props: {
-  title: string; name: string; onNameChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  title: string;
+  url: string; onUrlChange: (e: ChangeEvent<HTMLInputElement>) => void; onImport: () => void;
+  importLoading: boolean; importError: string;
+  name: string; onNameChange: (e: ChangeEvent<HTMLInputElement>) => void;
   servings: string; onServingsChange: (e: ChangeEvent<HTMLInputElement>) => void;
   ingredientText: string; onIngredientTextChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   instructions: string; onInstructionsChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   parseLoading: boolean; parseProblem: boolean; parseErrorText: string;
   onCancel: () => void; onContinue: () => void; onSkipManual: () => void;
 }) {
-  const { title, name, onNameChange, servings, onServingsChange, ingredientText, onIngredientTextChange, instructions, onInstructionsChange, parseLoading, parseProblem, parseErrorText, onCancel, onContinue, onSkipManual } = props;
+  const { title, url, onUrlChange, onImport, importLoading, importError, name, onNameChange, servings, onServingsChange, ingredientText, onIngredientTextChange, instructions, onInstructionsChange, parseLoading, parseProblem, parseErrorText, onCancel, onContinue, onSkipManual } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
         <BackLink label="Cancel" onClick={onCancel} />
         <div className="text-2xl font-extrabold mt-3.5" style={{ color: text }}>{title}</div>
-        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Paste the ingredient list and we&apos;ll sort it into something we can check against your kitchen.</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Import from a link, or paste it in — either way you&apos;ll review the ingredients next.</div>
+
+        <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Import from a link</div>
+        <div className="flex gap-2">
+          <input value={url} onChange={onUrlChange} inputMode="url" placeholder="https://…" className="flex-1 min-w-0 h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
+          <button onClick={onImport} disabled={importLoading || !url.trim()} className="shrink-0 px-4 h-[46px] rounded-xl text-white text-[14px] font-bold disabled:opacity-50" style={{ background: accent }}>
+            {importLoading ? '…' : 'Fetch'}
+          </button>
+        </div>
+        {importLoading && <div className="mt-2 text-[13px] font-semibold" style={{ color: muted }}>Reading that page…</div>}
+        {importError && <div className="mt-2 p-3 rounded-xl text-[13px] font-semibold" style={{ background: card, border: `1.5px solid ${border}`, color: errorColor }}>{importError}</div>}
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Recipe name</div>
         <input value={name} onChange={onNameChange} placeholder="e.g. Chicken Tikka Masala" className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />

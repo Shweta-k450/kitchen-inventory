@@ -9,6 +9,29 @@ function dataUrlToBase64(dataUrl: string): { base64: string; mimeType: string } 
 
 export type ApiErrorCode = string;
 
+export interface ImportedRecipe {
+  name: string;
+  servings: number | null;
+  ingredientsText: string;
+  instructions: string;
+  source: 'structured' | 'ai';
+}
+
+export async function importRecipeApi(url: string): Promise<{ recipe?: ImportedRecipe; error?: ApiErrorCode }> {
+  try {
+    const res = await fetch('/api/import-recipe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { error: data.error || 'upstream_error' };
+    return { recipe: data.recipe };
+  } catch {
+    return { error: 'network_error' };
+  }
+}
+
 export async function parseIngredientsApi(text: string): Promise<{ items?: Partial<Ingredient>[]; error?: ApiErrorCode }> {
   try {
     const res = await fetch('/api/parse-ingredients', {
