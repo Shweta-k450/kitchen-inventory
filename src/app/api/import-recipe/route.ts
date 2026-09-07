@@ -226,7 +226,7 @@ async function fetchYouTubeContext(id: string): Promise<{ title: string; descrip
   // (c) Transcript — only bother when the description is too short to hold the recipe.
   if (html && description.replace(/\s+/g, ' ').trim().length < 600) {
     try {
-      const tm = html.match(/"captionTracks":(\[.*?\])(?=,"[a-zA-Z])/s);
+      const tm = html.match(/"captionTracks":(\[[\s\S]*?\])(?=,"[a-zA-Z])/);
       if (tm) {
         const tracks = JSON.parse(tm[1]) as { baseUrl?: string; languageCode?: string; kind?: string }[];
         const track =
