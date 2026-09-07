@@ -1721,11 +1721,13 @@ function ItemDetailScreen(props: {
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-24">
         <BackLink label="Back" onClick={onClose} />
-        <div className="w-full rounded-2xl mt-4 flex items-center justify-center" style={{ aspectRatio: '16/10', background: section }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8z" /><path d="M4 8l8 4 8-4M12 12v8" /></svg>
-        </div>
-        <div className="mt-4.5">
-          <EditableTitle value={item.name} onSave={onRename} textClass="text-[22px] font-extrabold" textStyle={{ color: text }} />
+        <div className="flex items-center gap-3.5 mt-4">
+          <div className="shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: section }}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8z" /><path d="M4 8l8 4 8-4M12 12v8" /></svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <EditableTitle value={item.name} onSave={onRename} textClass="text-[21px] font-extrabold leading-tight" textStyle={{ color: text }} />
+          </div>
         </div>
         {needsSorting && (
           <div className="mt-3 rounded-2xl p-3.5" style={{ background: hexToRgba(accent, 0.08), border: `1.5px solid ${hexToRgba(accent, 0.25)}` }}>
