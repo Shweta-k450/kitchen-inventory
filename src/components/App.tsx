@@ -55,6 +55,7 @@ interface UiState {
   locationCategoryFilter: string | null;
   storeFilter: string | null;
   addReturnTab: 'home' | 'grocery' | 'recipes' | 'plan';
+  addReturnScreen: Screen; // exact screen the add flow was started from, to return there
   addDraft: AddDraft;
   manualDraft: string;
   addPhotoStatus: 'idle' | 'loading' | 'error';
@@ -97,7 +98,7 @@ const initialState: UiState = {
   screen: 'home', tab: 'home', searchQuery: '', searchReturnScreen: 'home',
   selectedLocationId: null, selectedPantryBin: null, selectedItemId: null, itemDetailReturnTo: 'location', recipeDetailReturnTo: 'recipes',
   locationCategoryFilter: null, storeFilter: null,
-  addReturnTab: 'home', addDraft: BLANK_DRAFT, manualDraft: '', addPhotoStatus: 'idle',
+  addReturnTab: 'home', addReturnScreen: 'home', addDraft: BLANK_DRAFT, manualDraft: '', addPhotoStatus: 'idle',
   receiptStatus: 'idle', receiptErrorText: '', receiptDraftItems: [], receiptStore: null, expandedReceiptItemId: null,
   recipeCatFilter: null, recipeCategoryDraft: '', selectedRecipeId: null, editingRecipeId: null,
   recipeNameDraft: '', recipeIngredientTextDraft: '', recipeInstructionsDraft: '',
@@ -251,9 +252,23 @@ export default function App() {
   };
 
   // ---------- add flow ----------
-  const startAdd = () => patch({ screen: 'add1', addReturnTab: st.tab });
-  const cancelAdd = () => patch({ screen: st.addReturnTab, addDraft: BLANK_DRAFT, addPhotoStatus: 'idle' });
-  const enterManually = () => patch({ screen: 'add2', addDraft: BLANK_DRAFT });
+  // Starting an add from a location/bin screen pre-fills that spot and returns there,
+  // so you can add several items in a row without hopping back to a tab.
+  const startAdd = () => {
+    const loc = st.screen === 'location' ? st.selectedLocationId
+      : st.screen === 'pantryBin' ? 'pantry'
+      : st.screen === 'itemDetail' ? (kitchen.items.find((i) => i.id === st.selectedItemId)?.location ?? null)
+      : null;
+    const bin = st.screen === 'pantryBin' && st.selectedPantryBin ? st.selectedPantryBin : '';
+    patch({
+      screen: 'add1',
+      addReturnTab: st.tab,
+      addReturnScreen: st.screen,
+      addDraft: loc ? { ...BLANK_DRAFT, location: loc, bin } : BLANK_DRAFT,
+    });
+  };
+  const cancelAdd = () => patch({ screen: st.addReturnScreen, addDraft: BLANK_DRAFT, addPhotoStatus: 'idle' });
+  const enterManually = () => patch({ screen: 'add2', addDraft: st.addDraft.location ? st.addDraft : BLANK_DRAFT });
   const backToAdd1 = () => patch({ screen: 'add1' });
   const backToAdd2 = () => patch({ screen: 'add2' });
   const goToAdd3 = () => patch({ screen: 'add3' });
@@ -306,7 +321,8 @@ export default function App() {
       addPhotoStatus: 'idle',
       screen: 'add2',
       addDraft: {
-        name: item.name, category: item.category, location: null, bin: '', store: null,
+        name: item.name, category: item.category,
+        location: st.addDraft.location, bin: st.addDraft.bin, store: null,
         date: '', dateType: 'expiry', skipDate: !item.needsDate, qty: '', unit: null,
       },
     });
@@ -342,8 +358,8 @@ export default function App() {
   // ---------- receipt scan ----------
   const startReceiptScan = () => patch({ screen: 'receiptScan', receiptStatus: 'idle', receiptErrorText: '' });
   const backToAdd1FromReceipt = () => patch({ screen: 'add1', receiptStatus: 'idle', receiptErrorText: '' });
-  const enterManuallyFromReceipt = () => patch({ screen: 'add2', addDraft: BLANK_DRAFT, receiptStatus: 'idle', receiptErrorText: '' });
-  const cancelReceiptReview = () => patch({ screen: st.addReturnTab, receiptDraftItems: [], receiptStore: null, expandedReceiptItemId: null });
+  const enterManuallyFromReceipt = () => patch({ screen: 'add2', addDraft: st.addDraft.location ? st.addDraft : BLANK_DRAFT, receiptStatus: 'idle', receiptErrorText: '' });
+  const cancelReceiptReview = () => patch({ screen: st.addReturnScreen, receiptDraftItems: [], receiptStore: null, expandedReceiptItemId: null });
 
   const buildReceiptDraftRow = (raw: { name?: string; category?: string; quantity?: string | null }, idx: number): ReceiptDraftItem => {
     const catId = raw && CATEGORIES.some((c) => c.id === raw.category) ? (raw.category as string) : 'grains';
@@ -914,7 +930,8 @@ export default function App() {
   const unitChipsArr = UNITS.map((u) => ({ label: u, style: neutralChipStyle(draft.unit === u), onClick: pickUnit(u) }));
   const receiptStoreChips = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(st.receiptStore === s.id), onClick: () => patch({ receiptStore: s.id }) }));
 
-  const showNav = st.screen === 'home' || st.screen === 'grocery' || st.screen === 'recipes' || st.screen === 'plan';
+  const NAV_SCREENS: Screen[] = ['home', 'grocery', 'recipes', 'plan', 'location', 'pantryBin', 'sortBucket', 'itemDetail'];
+  const showNav = NAV_SCREENS.includes(st.screen);
   const receiptIncludedCount = st.receiptDraftItems.filter((i) => i.include).length;
 
   // Screens with a Back/Cancel link — a rightward swipe runs the same handler.
@@ -944,9 +961,9 @@ export default function App() {
     pantryBin: 'location',
     sortBucket: 'home',
     itemDetail: st.itemDetailReturnTo,
-    add1: st.addReturnTab,
+    add1: st.addReturnScreen,
     receiptScan: 'add1',
-    receiptReview: st.addReturnTab,
+    receiptReview: st.addReturnScreen,
     add2: 'add1',
     add3: 'add2',
     recipeDetail: st.recipeDetailReturnTo,
@@ -1565,7 +1582,7 @@ function LocationScreen(props: { label: string; count: number; showFilters: bool
           </div>
         )}
       </div>
-      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-10">
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-24">
         {sections.map((sec) => (
           <div key={sec.sectionTitle}>
             <div className="text-[12.5px] font-bold uppercase tracking-wide my-3.5" style={{ color: muted }}>{sec.sectionTitle}</div>
@@ -1597,7 +1614,7 @@ function PantryBinsScreen(props: {
         </div>
         <div className="text-[13.5px] mt-0.5" style={{ color: muted }}>{count} items</div>
       </div>
-      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-10">
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-24">
         <div className="grid grid-cols-2 gap-3">
           {cards.map((c) => (
             <div key={c.key} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: binColor, border: '1px solid rgba(0,0,0,0.06)' }}>
@@ -1630,7 +1647,7 @@ function SortBucketScreen(props: {
           {rows.length === 0 ? 'Nothing waiting — all put away.' : `${rows.length} item${rows.length === 1 ? '' : 's'} bought but not placed yet`}
         </div>
       </div>
-      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-10">
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-24">
         {rows.length === 0 ? (
           <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>
             When you check something off the grocery list, it lands here so you can give it a spot and quantity.
@@ -1663,7 +1680,7 @@ function ItemDetailScreen(props: {
   const commitQty = () => { if (qtyDraft.trim() !== (item.quantity != null ? String(item.quantity) : '')) onQtyCommit(qtyDraft); };
   return (
     <div className="absolute inset-0 flex flex-col">
-      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
+      <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-24">
         <BackLink label="Back" onClick={onClose} />
         <div className="w-full rounded-2xl mt-4 flex items-center justify-center" style={{ aspectRatio: '16/10', background: section }}>
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8z" /><path d="M4 8l8 4 8-4M12 12v8" /></svg>
