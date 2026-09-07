@@ -1753,7 +1753,16 @@ function ItemDetailScreen(props: {
             </div>
           </>
         )}
-        <div onClick={onRemove} className="mt-7 text-center text-[13.5px] font-semibold cursor-pointer" style={{ color: errorColor }}>Remove Item</div>
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={onRemove}
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-[13.5px] font-bold text-white"
+            style={{ background: errorColor, boxShadow: `0 2px 10px ${hexToRgba(errorColor, 0.35)}` }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" /></svg>
+            Remove Item
+          </button>
+        </div>
       </div>
     </div>
   );
