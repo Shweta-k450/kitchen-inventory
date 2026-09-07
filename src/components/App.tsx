@@ -2628,7 +2628,7 @@ function RecipeAdd2Screen(props: {
       <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
         <button onClick={onContinue} disabled={continueDisabled} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold disabled:opacity-50" style={{ background: accent }}>{continueLabel}</button>
       </div>
-      {loading && <LoadingOverlay solid icon="book" label="Reading amounts…" />}
+      {loading && <LoadingOverlay icon="book" label="Reading amounts…" />}
     </div>
   );
 }
