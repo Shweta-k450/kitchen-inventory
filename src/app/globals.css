@@ -80,3 +80,15 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .ck-steam, .ck-rattle, .ck-shake { animation-duration: 2.4s; }
 }
+
+/* "fridge opening & closing" loader */
+@keyframes fr-door {
+  0%, 16%, 84%, 100% { transform: perspective(240px) rotateY(0deg); }
+  42%, 58%           { transform: perspective(240px) rotateY(-64deg); }
+}
+.fr-door  { transform-box: fill-box; transform-origin: left center; animation: fr-door 2.1s ease-in-out infinite; }
+.fr-shake { transform-box: fill-box; transform-origin: center; animation: ck-shake 0.55s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .fr-door { animation-duration: 4s; }
+  .fr-shake { animation: none; }
+}

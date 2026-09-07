@@ -973,7 +973,7 @@ export default function App() {
   const receiptStoreChips = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(st.receiptStore === s.id), onClick: () => patch({ receiptStore: s.id }) }));
 
   const NAV_SCREENS: Screen[] = ['home', 'grocery', 'recipes', 'plan', 'location', 'pantryBin', 'sortBucket', 'expiring', 'itemDetail'];
-  const showNav = NAV_SCREENS.includes(st.screen);
+  const showNav = kitchen.status !== 'connecting' && NAV_SCREENS.includes(st.screen);
   const receiptIncludedCount = st.receiptDraftItems.filter((i) => i.include).length;
 
   // Screens with a Back/Cancel link — a rightward swipe runs the same handler.
@@ -1421,16 +1421,20 @@ export default function App() {
   return (
     <div className="min-h-dvh flex flex-col bg-white" style={{ color: text }}>
       <div className="flex-1 min-h-0 relative">
-        <SwipeBack
-          enabled={swipeBackHandler !== null}
-          onBack={swipeBackHandler ?? (() => {})}
-          back={swipeBackTarget ? renderScreen(swipeBackTarget) : null}
-          screenKey={st.screen}
-        >
-          <PullToRefresh onRefresh={kitchen.refresh}>
-            {renderScreen(st.screen)}
-          </PullToRefresh>
-        </SwipeBack>
+        {kitchen.status === 'connecting' ? (
+          <LoadingOverlay solid icon="fridge" label="Loading your kitchen…" />
+        ) : (
+          <SwipeBack
+            enabled={swipeBackHandler !== null}
+            onBack={swipeBackHandler ?? (() => {})}
+            back={swipeBackTarget ? renderScreen(swipeBackTarget) : null}
+            screenKey={st.screen}
+          >
+            <PullToRefresh onRefresh={kitchen.refresh}>
+              {renderScreen(st.screen)}
+            </PullToRefresh>
+          </SwipeBack>
+        )}
       </div>
 
       {showNav && (
@@ -1642,13 +1646,32 @@ function CookerLoader() {
   );
 }
 
-function LoadingOverlay({ label }: { label: string }) {
+// A fridge door swinging open and shut, with a little wobble — the app's boot loader.
+function FridgeLoader() {
+  return (
+    <svg width="86" height="86" viewBox="0 0 64 64" fill="none" aria-hidden>
+      <g className="fr-shake">
+        {/* interior revealed as the door swings */}
+        <rect x="17" y="6" width="30" height="52" rx="4" fill="#efe4d8" stroke={accent} strokeWidth="2.4" />
+        <path d="M20 22 h24 M20 38 h24" stroke={accent} strokeWidth="1.6" strokeOpacity="0.4" strokeLinecap="round" />
+        {/* the door */}
+        <g className="fr-door">
+          <rect x="17" y="6" width="30" height="52" rx="4" fill="#f7e3e5" stroke={accent} strokeWidth="2.4" />
+          <path d="M17 26 h30" stroke={accent} strokeWidth="2.2" />
+          <path d="M41 13 v9 M41 32 v13" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+function LoadingOverlay({ label, solid, icon }: { label: string; solid?: boolean; icon?: 'cooker' | 'fridge' }) {
   return (
     <div
       className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3.5 px-8 text-center"
-      style={{ background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
+      style={solid ? { background: '#fff' } : { background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
     >
-      <CookerLoader />
+      {icon === 'fridge' ? <FridgeLoader /> : <CookerLoader />}
       <div className="text-[13.5px] font-semibold" style={{ color: muted }}>{label}</div>
     </div>
   );

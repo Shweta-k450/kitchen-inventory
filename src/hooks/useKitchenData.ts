@@ -33,6 +33,12 @@ export function useKitchenData() {
       return;
     }
 
+    // Don't sit on the boot loader forever if the first snapshot never lands
+    // (e.g. first-ever load while offline) — fall through to the app.
+    const bootTimer = setTimeout(() => {
+      setStatus((s) => (s === 'connecting' ? 'error' : s));
+    }, 12000);
+
     const unsubItems = onSnapshot(
       collection(db, 'items'),
       (snap) => {
@@ -122,6 +128,7 @@ export function useKitchenData() {
     );
 
     return () => {
+      clearTimeout(bootTimer);
       unsubItems();
       unsubLocations();
       unsubGrocery();
