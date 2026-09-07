@@ -1652,47 +1652,47 @@ function CookerLoader() {
   );
 }
 
-// A cat pads in from the right and leans in to peek at an opening fridge — the
-// boot loader (and a nod to the app's name, "Kit'in").
+// The boot loader: a cat up on its hind legs, front paws on an open fridge door,
+// peering in at the glow (a mouse blinks back). A nod to the app's name, "Kit'in".
 function FridgeLoader() {
   const fur = '#f7e3e5';
   return (
-    <svg width="98" height="98" viewBox="0 0 64 64" fill="none" aria-hidden>
-      <path d="M5 52h48" stroke={accent} strokeWidth="1.4" strokeOpacity="0.2" strokeLinecap="round" />
+    <svg width="96" height="96" viewBox="0 0 64 64" fill="none" aria-hidden>
+      <path d="M2 53h40" stroke={accent} strokeWidth="1.4" strokeOpacity="0.18" strokeLinecap="round" />
+      <path className="kit-pool" d="M6 53H32l6 8H0Z" fill="#F2C879" />
 
-      {/* fridge (left) */}
-      <rect x="6" y="12" width="16" height="40" rx="2.5" fill="#efe4d8" stroke={accent} strokeWidth="2.2" />
-      <path d="M9 25h10M9 38h10" stroke={accent} strokeWidth="1.5" strokeOpacity="0.38" strokeLinecap="round" />
-      <rect className="kit-glow" x="7" y="13" width="14" height="38" rx="2" fill="#EFCB84" />
+      {/* fridge (right) */}
+      <rect x="30" y="7" width="27" height="49" rx="3" fill="#efe4d8" stroke={accent} strokeWidth="2.2" />
+      <rect x="33" y="10" width="21" height="43" rx="1.5" fill="#ded0be" stroke={accent} strokeWidth="1.6" />
+      <rect className="kit-glow" x="33" y="10" width="21" height="43" rx="1.5" fill="#F2C879" />
+      <path d="M34 23h19M34 34h19M34 45h19" stroke={accent} strokeWidth="1.3" strokeOpacity="0.5" strokeLinecap="round" />
+      <g className="kit-blink">
+        <circle cx="43" cy="19" r="1" fill={accent} />
+        <circle cx="46.5" cy="19" r="1" fill={accent} />
+      </g>
       <g className="kit-door">
-        <rect x="6" y="12" width="16" height="40" rx="2.5" fill={fur} stroke={accent} strokeWidth="2.2" />
-        <path d="M6 27h16" stroke={accent} strokeWidth="2" />
-        <path d="M9 18v9" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
+        <rect x="31" y="8" width="23" height="47" rx="2.5" fill={fur} stroke={accent} strokeWidth="2.2" />
+        <path d="M31 21h23" stroke={accent} strokeWidth="1.8" />
+        <path d="M35 13v8" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
+        <circle cx="46" cy="31" r="1.2" fill={accent} fillOpacity="0.4" />
+        <path d="M43 39h6M43 42h4" stroke={accent} strokeWidth="1.2" strokeOpacity="0.4" strokeLinecap="round" />
       </g>
 
-      {/* cat — facing left, elegant slim silhouette */}
-      <g className="kit-walk">
-        <g className="kit-bob">
-          <g transform="translate(19 22) scale(0.58)">
-            <g className="kit-tail">
-              <path d="M55 41c6-2 8-11 3-16-3-3-7-2-8 1" stroke={accent} strokeWidth="4.2" strokeLinecap="round" />
-            </g>
-            <path d="M48 45v7M53 44v8M34 44v8M39 45v7" stroke={accent} strokeWidth="3.4" strokeLinecap="round" />
-            {/* haunch + long lean back */}
-            <path d="M31 33c3-8 20-9 25-1 3 5 2 12-3 15-3 2-8 2-11 1" fill={fur} stroke={accent} strokeWidth="3.8" strokeLinejoin="round" />
-            {/* chest + front leg line */}
-            <path d="M31 33c-2 4-2 9 1 12 2 2 6 3 10 3" fill={fur} stroke={accent} strokeWidth="3.8" strokeLinejoin="round" />
-            {/* head */}
-            <path d="M31 31c1-6-3-10-9-10s-9 5-8 10c1 5 6 7 10 5 4-1 6-3 7-5z" fill={fur} stroke={accent} strokeWidth="3.8" strokeLinejoin="round" />
-            {/* ears — softly curved leaf shapes on top of the head */}
-            <path d="M15 23Q16 12 23 21Z" fill={fur} stroke={accent} strokeWidth="3.4" strokeLinejoin="round" />
-            <path d="M24 20Q30 12 31 23Z" fill={fur} stroke={accent} strokeWidth="3.4" strokeLinejoin="round" />
-            {/* almond eye, nose, whiskers */}
-            <path d="M17 25q2.4-2 4.6 0" stroke={accent} strokeWidth="2.8" strokeLinecap="round" />
-            <circle cx="13.5" cy="27.5" r="1.7" fill={accent} />
-            <path d="M13 27h-5M13.5 29q-3.5 1-5.5 2" stroke={accent} strokeWidth="1.7" strokeOpacity="0.55" strokeLinecap="round" />
-          </g>
+      {/* cat — rear 3/4 view, up on its hind legs */}
+      <g className="kit-breathe">
+        <path d="M12 50.5c-2.6 0-3 2.2-3 3.2h6c0-2.2-1-3.2-3-3.2zM19.5 50.5c-2.6 0-3 2.2-3 3.2h6c0-2.2-1-3.2-3-3.2z" fill={fur} stroke={accent} strokeWidth="1.6" strokeLinejoin="round" />
+        <g className="kit-tail">
+          <path d="M10 43c-4 3-7 9-4 12 2 2 5 1.5 6-1" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
         </g>
+        <path d="M10 51C6 43 7 27 13 21c3-3 8-3 11 0 6 6 5 24 0 30-3 3-11 3-14 0z" fill={fur} stroke={accent} strokeWidth="2.2" strokeLinejoin="round" />
+        <path d="M13 30l1.5 3M17 35l1.5 3M20 28l1.5 3M15 41l1.5 3" stroke={accent} strokeWidth="1" strokeOpacity="0.32" strokeLinecap="round" />
+        <ellipse cx="20" cy="17" rx="6" ry="5.5" fill={fur} stroke={accent} strokeWidth="2.2" transform="rotate(14 20 17)" />
+        <path d="M13 15Q15 6 20 12Z" fill={fur} stroke={accent} strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M21 11Q27 5 27 14Z" fill={fur} stroke={accent} strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M21 22C23 16 27 14 30 16" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M24 24C26 19 29 18 31 20" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
+        <circle cx="30" cy="16" r="1.8" fill={fur} stroke={accent} strokeWidth="1.4" />
+        <circle cx="31" cy="20" r="1.8" fill={fur} stroke={accent} strokeWidth="1.4" />
       </g>
     </svg>
   );

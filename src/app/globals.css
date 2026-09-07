@@ -81,36 +81,26 @@ button {
   .ck-steam, .ck-rattle, .ck-shake { animation-duration: 2.4s; }
 }
 
-/* "a cat pads in from the right and peeks at the fridge" loader */
-@keyframes kit-walk {
-  0%, 100%  { transform: translateX(30px) rotate(0deg); }
-  26%, 76%  { transform: translateX(0px) rotate(0deg); }
-  40%, 62%  { transform: translateX(-2px) rotate(-7deg); }
-}
-@keyframes kit-bob {
-  0%, 50%, 100% { transform: translateY(0); }
-  25%, 75%      { transform: translateY(-1.3px); }
-}
-@keyframes kit-tail {
-  0%, 100% { transform: rotate(-10deg); }
-  50%      { transform: rotate(12deg); }
-}
+/* boot loader: a cat up on its hind legs, peering into a glowing fridge */
 @keyframes kit-door {
-  0%, 18%, 88%, 100% { transform: perspective(240px) rotateY(0deg); }
-  30%, 80%           { transform: perspective(240px) rotateY(56deg); }
+  0%, 8%, 96%, 100% { transform: perspective(260px) rotateY(0deg); }
+  26%, 88%          { transform: perspective(260px) rotateY(60deg); }
 }
-@keyframes kit-glow {
-  0%, 22%, 86%, 100% { opacity: 0; }
-  32%, 78%           { opacity: 0.5; }
-}
-.kit-walk { transform-box: fill-box; transform-origin: center bottom; animation: kit-walk 3.6s ease-in-out infinite; }
-.kit-bob  { transform-box: fill-box; transform-origin: center bottom; animation: kit-bob 0.5s ease-in-out infinite; }
-.kit-tail { transform-box: fill-box; transform-origin: center bottom; animation: kit-tail 1.2s ease-in-out infinite; }
-.kit-door { transform-box: fill-box; transform-origin: right center; animation: kit-door 3.6s ease-in-out infinite; }
-.kit-glow { animation: kit-glow 3.6s ease-in-out infinite; }
+@keyframes kit-glow    { 0%, 12%, 92%, 100% { opacity: 0; } 28%, 86% { opacity: 0.55; } }
+@keyframes kit-pool    { 0%, 14%, 88%, 100% { opacity: 0; } 30%, 82% { opacity: 0.3; } }
+@keyframes kit-tail    { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(10deg); } }
+@keyframes kit-blink   { 0%, 45%, 51%, 100% { transform: scaleY(1); } 48% { transform: scaleY(0.12); } }
+@keyframes kit-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-0.6px); } }
+.kit-door    { transform-box: fill-box; transform-origin: right center; animation: kit-door 4.4s ease-in-out infinite; }
+.kit-glow    { animation: kit-glow 4.4s ease-in-out infinite; }
+.kit-pool    { animation: kit-pool 4.4s ease-in-out infinite; }
+.kit-tail    { transform-box: fill-box; transform-origin: center top; animation: kit-tail 1.7s ease-in-out infinite; }
+.kit-blink   { transform-box: fill-box; transform-origin: center; animation: kit-blink 4.4s ease-in-out infinite; }
+.kit-breathe { transform-box: fill-box; transform-origin: center bottom; animation: kit-breathe 3s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .kit-walk, .kit-door, .kit-glow { animation-duration: 8s; }
-  .kit-bob, .kit-tail { animation: none; }
+  .kit-door { transform: perspective(260px) rotateY(58deg); animation: none; }
+  .kit-glow, .kit-pool { opacity: 0.5; animation: none; }
+  .kit-tail, .kit-blink, .kit-breathe { animation: none; }
 }
 
 /* "searching a book" loader — a magnifying glass roaming over an open book */
