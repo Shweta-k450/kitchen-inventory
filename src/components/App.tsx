@@ -1652,19 +1652,36 @@ function CookerLoader() {
   );
 }
 
-// A fridge door swinging open and shut, with a little wobble — the app's boot loader.
+// A kitten pads in from the left and peeks into an opening fridge — the boot loader
+// (and a nod to the app's name, "Kit'in").
 function FridgeLoader() {
   return (
-    <svg width="86" height="86" viewBox="0 0 64 64" fill="none" aria-hidden>
-      <g className="fr-shake">
-        {/* interior revealed as the door swings */}
-        <rect x="17" y="6" width="30" height="52" rx="4" fill="#efe4d8" stroke={accent} strokeWidth="2.4" />
-        <path d="M20 22 h24 M20 38 h24" stroke={accent} strokeWidth="1.6" strokeOpacity="0.4" strokeLinecap="round" />
-        {/* the door */}
-        <g className="fr-door">
-          <rect x="17" y="6" width="30" height="52" rx="4" fill="#f7e3e5" stroke={accent} strokeWidth="2.4" />
-          <path d="M17 26 h30" stroke={accent} strokeWidth="2.2" />
-          <path d="M41 13 v9 M41 32 v13" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
+    <svg width="96" height="96" viewBox="0 0 64 64" fill="none" aria-hidden>
+      <path d="M5 51h42" stroke={accent} strokeWidth="1.4" strokeOpacity="0.22" strokeLinecap="round" />
+
+      {/* fridge */}
+      <rect x="37" y="12" width="17" height="40" rx="2.5" fill="#efe4d8" stroke={accent} strokeWidth="2.2" />
+      <path d="M40 25h11M40 38h11" stroke={accent} strokeWidth="1.5" strokeOpacity="0.4" strokeLinecap="round" />
+      <rect className="kit-glow" x="38" y="13" width="15" height="38" rx="2" fill="#EFCB84" />
+      <g className="kit-door">
+        <rect x="37" y="12" width="17" height="40" rx="2.5" fill="#f7e3e5" stroke={accent} strokeWidth="2.2" />
+        <path d="M37 27h17" stroke={accent} strokeWidth="2" />
+        <path d="M50 18v9" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
+      </g>
+
+      {/* kitten */}
+      <g className="kit-walk">
+        <g className="kit-bob">
+          <g className="kit-tail">
+            <path d="M9 43c-5-1-6-6-4-10 1-2 3-3 5-2" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
+          </g>
+          <path d="M11 48v3.5M16 49v3M21 48.5v3.5M25 47.5v3" stroke={accent} strokeWidth="2.2" strokeLinecap="round" />
+          <ellipse cx="17" cy="43" rx="9.5" ry="6.5" fill="#f7e3e5" stroke={accent} strokeWidth="2.2" />
+          <circle cx="25" cy="36" r="6" fill="#f7e3e5" stroke={accent} strokeWidth="2.2" />
+          <path d="M20.5 32.5l0.6-4.6 3.6 2.6zM29.6 32l1-4.6 3 3.6z" fill="#f7e3e5" stroke={accent} strokeWidth="1.6" strokeLinejoin="round" />
+          <circle cx="23.2" cy="36" r="0.95" fill={accent} />
+          <circle cx="27" cy="36" r="0.95" fill={accent} />
+          <path d="M24.6 38.3l-1 1.1h2z" fill={accent} />
         </g>
       </g>
     </svg>

@@ -81,16 +81,36 @@ button {
   .ck-steam, .ck-rattle, .ck-shake { animation-duration: 2.4s; }
 }
 
-/* "fridge opening & closing" loader */
-@keyframes fr-door {
-  0%, 16%, 84%, 100% { transform: perspective(240px) rotateY(0deg); }
-  42%, 58%           { transform: perspective(240px) rotateY(-64deg); }
+/* "a kitten walks in and peeks at the fridge" loader */
+@keyframes kit-walk {
+  0%, 100%  { transform: translateX(-28px) rotate(0deg); }
+  26%, 76%  { transform: translateX(0px) rotate(0deg); }
+  40%, 62%  { transform: translateX(2px) rotate(7deg); }
 }
-.fr-door  { transform-box: fill-box; transform-origin: left center; animation: fr-door 2.1s ease-in-out infinite; }
-.fr-shake { transform-box: fill-box; transform-origin: center; animation: ck-shake 0.55s ease-in-out infinite; }
+@keyframes kit-bob {
+  0%, 50%, 100% { transform: translateY(0); }
+  25%, 75%      { transform: translateY(-1.4px); }
+}
+@keyframes kit-tail {
+  0%, 100% { transform: rotate(-9deg); }
+  50%      { transform: rotate(13deg); }
+}
+@keyframes kit-door {
+  0%, 18%, 88%, 100% { transform: perspective(240px) rotateY(0deg); }
+  30%, 80%           { transform: perspective(240px) rotateY(-56deg); }
+}
+@keyframes kit-glow {
+  0%, 22%, 86%, 100% { opacity: 0; }
+  32%, 78%           { opacity: 0.5; }
+}
+.kit-walk { transform-box: fill-box; transform-origin: center bottom; animation: kit-walk 3.6s ease-in-out infinite; }
+.kit-bob  { transform-box: fill-box; transform-origin: center bottom; animation: kit-bob 0.5s ease-in-out infinite; }
+.kit-tail { transform-box: fill-box; transform-origin: right bottom; animation: kit-tail 1.1s ease-in-out infinite; }
+.kit-door { transform-box: fill-box; transform-origin: left center; animation: kit-door 3.6s ease-in-out infinite; }
+.kit-glow { animation: kit-glow 3.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .fr-door { animation-duration: 4s; }
-  .fr-shake { animation: none; }
+  .kit-walk, .kit-door, .kit-glow { animation-duration: 8s; }
+  .kit-bob, .kit-tail { animation: none; }
 }
 
 /* "searching a book" loader — a magnifying glass roaming over an open book */
