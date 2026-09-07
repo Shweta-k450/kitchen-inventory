@@ -3,7 +3,7 @@
 import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import { useKitchenData } from '@/hooks/useKitchenData';
 import {
-  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS, LEFTOVER_DAYS,
+  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, LOCATION_PALETTE, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS, LEFTOVER_DAYS,
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
@@ -13,12 +13,13 @@ import {
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
   parseAmount, formatAmount, knownRecipeCategories, canonicalRecipeCategory, recipeCategoryCards,
   categoryMeta, knownItemCategories, canonicalItemCategory, normCategory,
+  locationMeta, canonicalLocation, guessLocationIcon,
   buildMealPlanGroceryRows, mondayOf, isoDate, addDays, weekDates, weekRangeLabel, dayLabel,
   planCookEffects, servingsLeft, preparedFreshness,
   type Section, type SectionRow, type CookEffect,
 } from '@/lib/logic';
 import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi, importRecipeApi } from '@/lib/apiClient';
-import type { Item, LocationId, Ingredient, Recipe, PreparedFood } from '@/lib/types';
+import type { Item, LocationId, LocationDef, Ingredient, Recipe, PreparedFood } from '@/lib/types';
 import { Chip, BackLink } from './Chip';
 import PullToRefresh from './PullToRefresh';
 import SwipeBack from './SwipeBack';
@@ -120,7 +121,19 @@ export default function App() {
   const [st, setStRaw] = useState<UiState>(initialState);
   const patch = (p: Partial<UiState>) => setStRaw((prev) => ({ ...prev, ...p }));
 
-  const decorated = useMemo(() => kitchen.items.map(decorateItem), [kitchen.items]);
+  // Built-in locations plus any the household added (deduped by normalized label).
+  const allLocations = useMemo<LocationDef[]>(() => {
+    const seen = new Set(LOCATIONS.map((l) => normCategory(l.label)));
+    const extra = kitchen.customLocations.filter((l) => {
+      const k = normCategory(l.label);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    return [...LOCATIONS, ...extra];
+  }, [kitchen.customLocations]);
+
+  const decorated = useMemo(() => kitchen.items.map((i) => decorateItem(i, allLocations)), [kitchen.items, allLocations]);
   // Items freshly checked off the grocery list live in the "To be sorted" bucket and
   // are held out of the location screens/counts until the user places them.
   const placedDecorated = useMemo(() => decorated.filter((i) => !i.needsSorting), [decorated]);
@@ -249,6 +262,13 @@ export default function App() {
     const canon = canonicalItemCategory(name, kitchen.items);
     if (canon) updateDraft({ category: canon });
   };
+  const addStorageLocation = (name: string) => {
+    const label = name.trim();
+    if (!label || allLocations.some((l) => normCategory(l.label) === normCategory(label))) return;
+    const used = new Set(allLocations.map((l) => l.color));
+    const color = LOCATION_PALETTE.find((c) => !used.has(c)) || LOCATION_PALETTE[allLocations.length % LOCATION_PALETTE.length];
+    kitchen.addLocation({ id: 'loc' + Date.now(), label, color, icon: guessLocationIcon(label) });
+  };
   const pickLocation = (id: LocationId) => () => updateDraft({ location: id, bin: id === 'pantry' ? st.addDraft.bin : '' });
   const setDraftBin = (e: ChangeEvent<HTMLInputElement>) => updateDraft({ bin: e.target.value });
   const pickBin = (b: string) => () => updateDraft({ bin: b });
@@ -285,7 +305,7 @@ export default function App() {
     const body: Omit<Item, 'id'> = {
       name: d.name.trim() ? d.name.trim() : 'New Item',
       category: d.category ? canonicalItemCategory(d.category, kitchen.items) : 'grains',
-      location: d.location || 'pantry',
+      location: d.location ? canonicalLocation(d.location, allLocations) : 'pantry',
       bin: (d.location || 'pantry') === 'pantry' ? canonicalBin(d.bin || 'Unsorted', kitchen.items) : '',
       store: d.store || null,
       status: 'ok',
@@ -786,10 +806,10 @@ export default function App() {
     return { count: items.length, alerts };
   };
   const pantryStats = statsFor('pantry');
-  const fridgeStats = statsFor('fridge');
-  const freezerStats = statsFor('freezer');
-  const spareStats = statsFor('spare-fridge');
-  const spareFreezerStats = statsFor('spare-freezer');
+  const homeLocationCards = allLocations.map((l) => {
+    const s = statsFor(l.id);
+    return { id: l.id, label: l.label, color: l.color, icon: l.icon, count: s.count, alerts: s.alerts, onOpen: openLocation(l.id) };
+  });
   const restockCount = placedDecorated.filter((i) => i.needsRestock).length + kitchen.groceryExtras.length;
   const expiringSoonCount = placedDecorated.filter((i) => i.soonOrUrgent).length;
 
@@ -874,7 +894,7 @@ export default function App() {
     ? [...itemCategoryDefs, categoryMeta(draft.category)]
     : itemCategoryDefs;
   const categoryChips = categoryDefsWithDraft.map((c) => ({ id: c.id, label: c.label, style: chipStyle(normCategory(draft.category) === normCategory(c.id), c.color), onClick: pickCategory(c.id) }));
-  const locationChips = LOCATIONS.map((l) => ({ id: l.id, label: l.label, style: neutralChipStyle(draft.location === l.id), onClick: pickLocation(l.id) }));
+  const locationChips = allLocations.map((l) => ({ id: l.id, label: l.label, style: neutralChipStyle(draft.location === l.id), onClick: pickLocation(l.id) }));
   const binChipsArr = knownPantryBins(kitchen.items).map((b) => ({ label: b, style: neutralChipStyle(normBin(draft.bin) === normBin(b)), onClick: pickBin(b) }));
   const storeChipsArr = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(draft.store === s.id), onClick: pickStore(s.id) }));
   const unitChipsArr = UNITS.map((u) => ({ label: u, style: neutralChipStyle(draft.unit === u), onClick: pickUnit(u) }));
@@ -954,15 +974,14 @@ export default function App() {
         return (
           <HomeScreen
             totalItems={kitchen.items.length}
+            locationCount={allLocations.length}
             dbStatus={kitchen.status}
             restockCount={restockCount}
             expiringSoonCount={expiringSoonCount}
             goGrocery={goGrocery}
             onSearch={openSearch}
-            pantryStats={pantryStats} fridgeStats={fridgeStats} freezerStats={freezerStats}
-            spareStats={spareStats} spareFreezerStats={spareFreezerStats}
-            openPantry={openLocation('pantry')} openFridge={openLocation('fridge')} openFreezer={openLocation('freezer')}
-            openSpare={openLocation('spare-fridge')} openSpareFreezer={openLocation('spare-freezer')}
+            locationCards={homeLocationCards}
+            onAddLocation={addStorageLocation}
             toSortCount={toSortItems.length} onOpenToSort={openToSort}
           />
         );
@@ -988,7 +1007,7 @@ export default function App() {
           />
         ) : (
           <LocationScreen
-            label={LOCATION_MAP[currentLocationId]?.label || ''}
+            label={locationMeta(currentLocationId, allLocations).label}
             count={placedDecorated.filter((i) => i.location === currentLocationId).length}
             showFilters={!currentLocationIsPantry}
             filterChips={filterChips}
@@ -1016,7 +1035,7 @@ export default function App() {
             key={si.id}
             item={si}
             statusOptions={statusOptionDefs.map((o) => ({ label: o.label, style: statusStyle(si.status === o.key, o.color), onClick: setStatus(o.key) }))}
-            locationOptions={LOCATIONS.map((l) => ({ label: l.label, style: chipStyle(si.location === l.id, l.color), onClick: setItemLocation(l.id) }))}
+            locationOptions={allLocations.map((l) => ({ label: l.label, style: chipStyle(si.location === l.id, l.color), onClick: setItemLocation(l.id) }))}
             isPantry={si.location === 'pantry'}
             binOptions={binNames.map((b) => ({ label: b, style: neutralChipStyle(normBin(si.bin) === normBin(b)), onClick: setItemBin(b) }))}
             unitOptions={UNITS.map((u) => ({ label: u, style: neutralChipStyle((si.unit || 'count') === u), onClick: setItemUnit(u) }))}
@@ -1066,6 +1085,7 @@ export default function App() {
             onRemove={removeReceiptItemHandler}
             pickCategory={pickReceiptCategory}
             pickLocation={pickReceiptLocation}
+            locations={allLocations}
             onSubmit={addReceiptItems}
             submitDisabled={receiptIncludedCount === 0}
           />
@@ -1336,28 +1356,23 @@ export default function App() {
 // ============================================================
 
 function HomeScreen(props: {
-  totalItems: number; dbStatus: string; restockCount: number; expiringSoonCount: number; goGrocery: () => void; onSearch: () => void;
-  pantryStats: { count: number; alerts: number }; fridgeStats: { count: number; alerts: number };
-  freezerStats: { count: number; alerts: number }; spareStats: { count: number; alerts: number }; spareFreezerStats: { count: number; alerts: number };
-  openPantry: () => void; openFridge: () => void; openFreezer: () => void; openSpare: () => void; openSpareFreezer: () => void;
+  totalItems: number; locationCount: number; dbStatus: string; restockCount: number; expiringSoonCount: number; goGrocery: () => void; onSearch: () => void;
+  locationCards: { id: string; label: string; color: string; icon: 'box' | 'fridge' | 'snow'; count: number; alerts: number; onOpen: () => void }[];
+  onAddLocation: (name: string) => void;
   toSortCount: number; onOpenToSort: () => void;
 }) {
-  const { totalItems, dbStatus, restockCount, expiringSoonCount, goGrocery, onSearch, pantryStats, fridgeStats, freezerStats, spareStats, spareFreezerStats, openPantry, openFridge, openFreezer, openSpare, openSpareFreezer, toSortCount, onOpenToSort } = props;
+  const { totalItems, locationCount, dbStatus, restockCount, expiringSoonCount, goGrocery, onSearch, locationCards, onAddLocation, toSortCount, onOpenToSort } = props;
   const showSyncBanner = dbStatus === 'unavailable' || dbStatus === 'error';
-  const cards = [
-    { label: 'Pantry', stats: pantryStats, onOpen: openPantry, icon: 'box' as const, color: LOCATION_MAP['pantry'].color },
-    { label: 'Fridge', stats: fridgeStats, onOpen: openFridge, icon: 'fridge' as const, color: LOCATION_MAP['fridge'].color },
-    { label: 'Freezer', stats: freezerStats, onOpen: openFreezer, icon: 'snow' as const, color: LOCATION_MAP['freezer'].color },
-    { label: 'Spare Fridge', stats: spareStats, onOpen: openSpare, icon: 'fridge' as const, color: LOCATION_MAP['spare-fridge'].color },
-    { label: 'Spare Freezer', stats: spareFreezerStats, onOpen: openSpareFreezer, icon: 'snow' as const, color: LOCATION_MAP['spare-freezer'].color },
-  ];
+  const [locOpen, setLocOpen] = useState(false);
+  const [newLoc, setNewLoc] = useState('');
+  const addLoc = () => { if (!newLoc.trim()) return; onAddLocation(newLoc); setNewLoc(''); setLocOpen(false); };
   return (
     <div className="noscroll absolute inset-0 overflow-y-auto px-5 pt-6 pb-[100px]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[13px] font-semibold tracking-wide uppercase" style={{ color: accent }}>Kitchen Inventory</div>
           <div className="text-[26px] font-extrabold mt-1" style={{ color: text }}>Our Kitchen</div>
-          <div className="text-sm mt-1" style={{ color: muted }}>{totalItems} items across 5 locations</div>
+          <div className="text-sm mt-1" style={{ color: muted }}>{totalItems} items across {locationCount} location{locationCount === 1 ? '' : 's'}</div>
         </div>
         <button onClick={onSearch} aria-label="Search" className="shrink-0 mt-1 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: section }}>
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
@@ -1400,20 +1415,44 @@ function HomeScreen(props: {
         </div>
       )}
 
-      <div className="text-[15px] font-bold mt-7 mb-3" style={{ color: text }}>Storage</div>
+      <div className="flex items-center gap-2 mt-7 mb-3">
+        <div className="text-[15px] font-bold" style={{ color: text }}>Storage</div>
+        <button
+          onClick={() => setLocOpen((v) => !v)}
+          aria-label={locOpen ? 'Cancel new storage' : 'Add a storage location'}
+          className="w-5 h-5 rounded-full flex items-center justify-center"
+          style={{ background: locOpen ? accent : section }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={locOpen ? '#fff' : accent} strokeWidth="2.6" strokeLinecap="round" style={{ transform: locOpen ? 'rotate(45deg)' : 'none' }}><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </div>
+      {locOpen && (
+        <div className="flex gap-2 mb-3">
+          <input
+            value={newLoc}
+            autoFocus
+            onChange={(e) => setNewLoc(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') addLoc(); }}
+            placeholder="e.g. Garage Shelf, Basement Freezer"
+            className="flex-1 min-w-0 h-[42px] rounded-xl px-3.5 text-sm outline-none"
+            style={{ border: `1.5px solid ${border}`, background: card, color: text }}
+          />
+          <button onClick={addLoc} disabled={!newLoc.trim()} className="shrink-0 px-4 h-[42px] rounded-xl text-white text-[13px] font-bold disabled:opacity-50" style={{ background: accent }}>Add</button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
-        {cards.map((c) => {
+        {locationCards.map((c) => {
           const fg = onColor(c.color);
           return (
-            <div key={c.label} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: c.color, border: '1px solid rgba(0,0,0,0.06)' }}>
-              {c.stats.alerts > 0 && (
+            <div key={c.id} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: c.color, border: '1px solid rgba(0,0,0,0.06)' }}>
+              {c.alerts > 0 && (
                 <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: '#fff', color: errorColor }}>
-                  {c.stats.alerts}
+                  {c.alerts}
                 </div>
               )}
               <StorageIcon kind={c.icon} color={fg} />
               <div className="text-[15px] font-bold mt-2.5" style={{ color: fg }}>{c.label}</div>
-              <div className="text-[12.5px] mt-0.5" style={{ color: onColorMuted(c.color) }}>{c.stats.count} items</div>
+              <div className="text-[12.5px] mt-0.5" style={{ color: onColorMuted(c.color) }}>{c.count} item{c.count === 1 ? '' : 's'}</div>
             </div>
           );
         })}
@@ -1731,9 +1770,10 @@ function ReceiptReviewScreen(props: {
   onDateChange: (id: string) => (e: ChangeEvent<HTMLInputElement>) => void;
   onToggleSkipDate: (id: string) => () => void; onRemove: (id: string) => () => void;
   pickCategory: (id: string, catId: string) => () => void; pickLocation: (id: string, locId: LocationId) => () => void;
+  locations: LocationDef[];
   onSubmit: () => void; submitDisabled: boolean;
 }) {
-  const { items, includedCount, storeChips, expandedId, onCancel, onToggleExpand, onToggleInclude, onNameChange, onBinChange, onDateChange, onToggleSkipDate, onRemove, pickCategory, pickLocation, onSubmit, submitDisabled } = props;
+  const { items, includedCount, storeChips, expandedId, onCancel, onToggleExpand, onToggleInclude, onNameChange, onBinChange, onDateChange, onToggleSkipDate, onRemove, pickCategory, pickLocation, locations, onSubmit, submitDisabled } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
@@ -1748,7 +1788,7 @@ function ReceiptReviewScreen(props: {
 
         {items.map((it) => {
           const cat = categoryMeta(it.category);
-          const loc = LOCATION_MAP[it.location];
+          const loc = locationMeta(it.location, locations);
           const isExpanded = expandedId === it.tempId;
           return (
             <div key={it.tempId} className="rounded-2xl p-3.5 mb-2.5" style={{ background: card, border: `1.5px solid ${border}` }}>
@@ -1772,7 +1812,7 @@ function ReceiptReviewScreen(props: {
                   </div>
                   <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3.5 mb-1.5" style={{ color: muted }}>Where does this go?</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {LOCATIONS.map((l) => <Chip key={l.id} label={l.label} style={neutralChipStyle(it.location === l.id)} onClick={pickLocation(it.tempId, l.id)} />)}
+                    {locations.map((l) => <Chip key={l.id} label={l.label} style={neutralChipStyle(it.location === l.id)} onClick={pickLocation(it.tempId, l.id)} />)}
                   </div>
                   {it.location === 'pantry' && (
                     <input value={it.bin} onChange={onBinChange(it.tempId)} placeholder="Cupboard or bin (optional)" className="w-full h-[42px] rounded-[10px] px-3 text-sm outline-none mt-2.5" style={{ border: `1.5px solid ${border}`, background: 'white', color: text }} />

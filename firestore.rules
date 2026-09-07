@@ -15,6 +15,9 @@ service cloud.firestore {
     match /items/{itemId} {
       allow read, write: if true;
     }
+    match /locations/{docId} {
+      allow read, write: if true;
+    }
     match /groceryExtras/{docId} {
       allow read, write: if true;
     }

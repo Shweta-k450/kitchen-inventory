@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { getDb, firebaseConfigured } from '@/lib/firebase';
 import { INITIAL_ITEMS } from '@/lib/constants';
-import type { Item, Recipe, ManualGroceryItem, MealPlanEntry, PreparedFood } from '@/lib/types';
+import type { Item, Recipe, ManualGroceryItem, MealPlanEntry, PreparedFood, LocationDef } from '@/lib/types';
 
 // Firestore rejects document IDs matching /__.*__/, so this can't be "__settings__".
 const PLAN_SETTINGS_ID = 'settings';
@@ -15,6 +15,7 @@ export type SyncStatus = 'connecting' | 'synced' | 'unavailable' | 'error';
 
 export function useKitchenData() {
   const [items, setItems] = useState<Item[]>([]);
+  const [customLocations, setCustomLocations] = useState<LocationDef[]>([]);
   const [groceryExtras, setGroceryExtras] = useState<ManualGroceryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [mealPlanEntries, setMealPlanEntries] = useState<MealPlanEntry[]>([]);
@@ -50,6 +51,17 @@ export function useKitchenData() {
         setStatus('synced');
       },
       () => setStatus('error')
+    );
+
+    const unsubLocations = onSnapshot(
+      collection(db, 'locations'),
+      (snap) => {
+        setCustomLocations(snap.docs.map((d) => {
+          const l = d.data() as Omit<LocationDef, 'id'>;
+          return { id: d.id, label: l.label, color: l.color, icon: l.icon || 'box' };
+        }));
+      },
+      () => {}
     );
 
     const unsubGrocery = onSnapshot(
@@ -111,6 +123,7 @@ export function useKitchenData() {
 
     return () => {
       unsubItems();
+      unsubLocations();
       unsubGrocery();
       unsubRecipes();
       unsubPlan();
@@ -153,6 +166,13 @@ export function useKitchenData() {
       batch.set(doc(db, 'items', id), body);
     });
     batch.commit().catch(() => {});
+  }, []);
+
+  const addLocation = useCallback((loc: LocationDef) => {
+    const db = getDb();
+    if (!db) return;
+    const { id, ...body } = loc;
+    setDoc(doc(db, 'locations', id), body).catch(() => {});
   }, []);
 
   const addManualGroceryItem = useCallback((name: string) => {
@@ -281,12 +301,17 @@ export function useKitchenData() {
       return;
     }
     try {
-      const [itemsSnap, groceriesSnap, recipesSnap] = await Promise.all([
+      const [itemsSnap, groceriesSnap, recipesSnap, locationsSnap] = await Promise.all([
         getDocs(collection(db, 'items')),
         getDocs(collection(db, 'groceryExtras')),
         getDocs(collection(db, 'recipes')),
+        getDocs(collection(db, 'locations')),
       ]);
       setItems(itemsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Item, 'id'>) })));
+      setCustomLocations(locationsSnap.docs.map((d) => {
+        const l = d.data() as Omit<LocationDef, 'id'>;
+        return { id: d.id, label: l.label, color: l.color, icon: l.icon || 'box' };
+      }));
       setGroceryExtras(groceriesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ManualGroceryItem, 'id'>) })));
       setRecipes(recipesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Recipe, 'id'>) })));
       setStatus('synced');
@@ -317,8 +342,8 @@ export function useKitchenData() {
   }, []);
 
   return {
-    items, groceryExtras, recipes, mealPlanEntries, mealPlanShopWeek, preparedFood, status,
-    setItemStatus, updateItem, saveItem, removeItem, addReceiptItems,
+    items, customLocations, groceryExtras, recipes, mealPlanEntries, mealPlanShopWeek, preparedFood, status,
+    setItemStatus, updateItem, saveItem, removeItem, addReceiptItems, addLocation,
     addManualGroceryItem, removeManualGroceryItem,
     saveRecipe, updateRecipe, deleteRecipe,
     addMealPlanEntry, addMealPlanEntries, updateMealPlanEntry, removeMealPlanEntry, setShopWeek,

@@ -1,4 +1,14 @@
-export type LocationId = 'pantry' | 'fridge' | 'freezer' | 'spare-fridge' | 'spare-freezer';
+// The five built-ins ship in code; the household can add more (stored in Firestore),
+// so a location id is any string. 'pantry' keeps its special bin-grid behaviour.
+export type LocationId = string;
+export type LocationIcon = 'box' | 'fridge' | 'snow';
+
+export interface LocationDef {
+  id: string;
+  label: string;
+  color: string;
+  icon: LocationIcon;
+}
 export type ItemStatus = 'ok' | 'low' | 'out' | 'buy-now' | 'skip';
 export type DateType = 'expiry' | 'consume-by' | null;
 

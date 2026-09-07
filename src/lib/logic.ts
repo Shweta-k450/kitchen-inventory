@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import { CATEGORIES, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS, RECIPE_CATEGORY_PRESETS } from './constants';
-import type { Item, ItemStatus, LocationId, Ingredient, Recipe, PreparedFood, Deduction } from './types';
+import { CATEGORIES, LOCATIONS, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS, RECIPE_CATEGORY_PRESETS } from './constants';
+import type { Item, ItemStatus, LocationId, LocationDef, LocationIcon, Ingredient, Recipe, PreparedFood, Deduction } from './types';
 
 export function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
@@ -193,9 +193,33 @@ function orderCategoryKeys(keys: string[]): string[] {
   return [...keys].sort((a, b) => rankOf(a) - rankOf(b) || categoryMeta(a).label.localeCompare(categoryMeta(b).label));
 }
 
-export function decorateItem(item: Item): DecoratedItem {
+// ---------- storage locations ----------
+export function guessLocationIcon(label: string): LocationIcon {
+  const s = (label || '').toLowerCase();
+  if (/\bfreez/.test(s) || /\bdeep\s*fridge/.test(s)) return 'snow';
+  if (/fridge|refriger|chiller|cool/.test(s)) return 'fridge';
+  return 'box';
+}
+
+/** Resolve any location id to its {id,label,color,icon}, falling back to a readable label. */
+export function locationMeta(id: string | null | undefined, locations: LocationDef[]): LocationDef {
+  const raw = (id || '').trim();
+  const found = locations.find((l) => l.id === raw || normCategory(l.label) === normCategory(raw));
+  if (found) return found;
+  return { id: raw, label: titleCaseWords(raw.replace(/[-_]+/g, ' ')) || 'Other', color: '#a6a496', icon: guessLocationIcon(raw) };
+}
+
+/** Fold a typed location name onto an existing one (any casing), else return it trimmed. */
+export function canonicalLocation(input: string, locations: LocationDef[]): string {
+  const t = input.trim();
+  if (!t) return t;
+  const found = locations.find((l) => normCategory(l.label) === normCategory(t) || l.id === t);
+  return found ? found.id : t;
+}
+
+export function decorateItem(item: Item, locations: LocationDef[] = LOCATIONS): DecoratedItem {
   const cat = categoryMeta(item.category);
-  const loc = LOCATION_MAP[item.location];
+  const loc = locationMeta(item.location, locations);
   const days = item.date ? daysUntil(item.date) : null;
   const urgency = days === null ? 'none' : days <= 2 ? 'urgent' : days <= 5 ? 'soon' : 'normal';
   let dateText = '';

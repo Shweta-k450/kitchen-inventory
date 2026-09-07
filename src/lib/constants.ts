@@ -1,4 +1,4 @@
-import type { CategoryDef, StoreDef, Item, DateType, LocationId } from './types';
+import type { CategoryDef, StoreDef, Item, DateType, LocationId, LocationDef } from './types';
 
 // Palette (paint-chip set): Pool at Sunset #2488C5, Mint Chip #B2DD9E,
 // Pink Guava #FFA9A5, Fresh Snow #F4E4D9, Olive Jar #AD9547, Ox-Blood #601A00,
@@ -44,15 +44,21 @@ export const DEFAULT_LOCATION_BY_CATEGORY: Record<string, LocationId> = {
   'frozen-veggies': 'freezer', 'frozen-fruit': 'freezer',
 };
 
-export const LOCATIONS: { id: LocationId; label: string; color: string }[] = [
-  { id: 'pantry', label: 'Pantry', color: '#EFCB84' },
-  { id: 'fridge', label: 'Fridge', color: '#2488C5' },
-  { id: 'freezer', label: 'Freezer', color: '#B2DD9E' },
-  { id: 'spare-fridge', label: 'Spare Fridge', color: '#FFA9A5' },
-  { id: 'spare-freezer', label: 'Spare Freezer', color: '#2D3F35' },
+// Built-in locations. The household can add more at runtime (Firestore `locations`
+// collection); those are merged after these. 'pantry' is special — it gets the
+// bin sub-grid — so keep it here and first.
+export const LOCATIONS: LocationDef[] = [
+  { id: 'pantry', label: 'Pantry', color: '#EFCB84', icon: 'box' },
+  { id: 'fridge', label: 'Fridge', color: '#2488C5', icon: 'fridge' },
+  { id: 'freezer', label: 'Freezer', color: '#B2DD9E', icon: 'snow' },
+  { id: 'spare-fridge', label: 'Spare Fridge', color: '#FFA9A5', icon: 'fridge' },
+  { id: 'spare-freezer', label: 'Spare Freezer', color: '#2D3F35', icon: 'snow' },
 ];
-export const LOCATION_MAP: Record<string, { id: LocationId; label: string; color: string }> = {};
+export const LOCATION_MAP: Record<string, LocationDef> = {};
 LOCATIONS.forEach((l) => { LOCATION_MAP[l.id] = l; });
+
+// Palette for auto-colouring a custom location (same paint-chip set as categories).
+export const LOCATION_PALETTE = ['#2488C5', '#B2DD9E', '#FFA9A5', '#AD9547', '#601A00', '#D2423A', '#2D3F35', '#EFCB84', '#F4E4D9'];
 
 export const STORES: StoreDef[] = [
   { id: 'indian-store', label: 'Indian Store' },
