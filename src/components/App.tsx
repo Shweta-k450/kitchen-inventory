@@ -1670,25 +1670,28 @@ function FridgeLoader() {
         <path d="M9 18v9" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
       </g>
 
-      {/* cat — facing left, elegant sitting-walk silhouette */}
+      {/* cat — facing left, elegant slim silhouette */}
       <g className="kit-walk">
         <g className="kit-bob">
-          <g className="kit-tail">
-            <path d="M55 41c6-2 8-11 3-16-3-3-7-2-8 1" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
+          <g transform="translate(19 22) scale(0.58)">
+            <g className="kit-tail">
+              <path d="M55 41c6-2 8-11 3-16-3-3-7-2-8 1" stroke={accent} strokeWidth="4.2" strokeLinecap="round" />
+            </g>
+            <path d="M48 45v7M53 44v8M34 44v8M39 45v7" stroke={accent} strokeWidth="3.4" strokeLinecap="round" />
+            {/* haunch + long lean back */}
+            <path d="M31 33c3-8 20-9 25-1 3 5 2 12-3 15-3 2-8 2-11 1" fill={fur} stroke={accent} strokeWidth="3.8" strokeLinejoin="round" />
+            {/* chest + front leg line */}
+            <path d="M31 33c-2 4-2 9 1 12 2 2 6 3 10 3" fill={fur} stroke={accent} strokeWidth="3.8" strokeLinejoin="round" />
+            {/* head */}
+            <path d="M31 31c1-6-3-10-9-10s-9 5-8 10c1 5 6 7 10 5 4-1 6-3 7-5z" fill={fur} stroke={accent} strokeWidth="3.8" strokeLinejoin="round" />
+            {/* ears — softly curved leaf shapes on top of the head */}
+            <path d="M15 23Q16 12 23 21Z" fill={fur} stroke={accent} strokeWidth="3.4" strokeLinejoin="round" />
+            <path d="M24 20Q30 12 31 23Z" fill={fur} stroke={accent} strokeWidth="3.4" strokeLinejoin="round" />
+            {/* almond eye, nose, whiskers */}
+            <path d="M17 25q2.4-2 4.6 0" stroke={accent} strokeWidth="2.8" strokeLinecap="round" />
+            <circle cx="13.5" cy="27.5" r="1.7" fill={accent} />
+            <path d="M13 27h-5M13.5 29q-3.5 1-5.5 2" stroke={accent} strokeWidth="1.7" strokeOpacity="0.55" strokeLinecap="round" />
           </g>
-          <path d="M48 45v7M53 44v8M34 44v8M39 45v7" stroke={accent} strokeWidth="2" strokeLinecap="round" />
-          {/* haunch + long lean back */}
-          <path d="M31 33c3-8 20-9 25-1 3 5 2 12-3 15-3 2-8 2-11 1" fill={fur} stroke={accent} strokeWidth="2.3" strokeLinejoin="round" />
-          {/* chest + front leg line */}
-          <path d="M31 33c-2 4-2 9 1 12 2 2 6 3 10 3" fill={fur} stroke={accent} strokeWidth="2.3" strokeLinejoin="round" />
-          {/* head */}
-          <path d="M31 31c1-6-3-10-9-10s-9 5-8 10c1 5 6 7 10 5 4-1 6-3 7-5z" fill={fur} stroke={accent} strokeWidth="2.3" strokeLinejoin="round" />
-          {/* pointed ears */}
-          <path d="M16 20l-2-9 7 5zM24 18l1-9 6 6z" fill={fur} stroke={accent} strokeWidth="1.8" strokeLinejoin="round" />
-          {/* almond eye, nose, whiskers */}
-          <path d="M17 25q2.4-2 4.6 0" stroke={accent} strokeWidth="1.7" strokeLinecap="round" />
-          <circle cx="13.5" cy="27.5" r="1" fill={accent} />
-          <path d="M13 27h-5M13.5 29q-3.5 1-5.5 2" stroke={accent} strokeWidth="1" strokeOpacity="0.55" strokeLinecap="round" />
         </g>
       </g>
     </svg>
