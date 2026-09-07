@@ -121,16 +121,18 @@ export default function App() {
   const [st, setStRaw] = useState<UiState>(initialState);
   const patch = (p: Partial<UiState>) => setStRaw((prev) => ({ ...prev, ...p }));
 
-  // Built-in locations plus any the household added (deduped by normalized label).
+  // Built-in locations (with any saved label/colour/icon overrides applied) plus the
+  // locations the household added. Override docs reuse the built-in id; custom ones
+  // have their own generated id.
   const allLocations = useMemo<LocationDef[]>(() => {
-    const seen = new Set(LOCATIONS.map((l) => normCategory(l.label)));
-    const extra = kitchen.customLocations.filter((l) => {
-      const k = normCategory(l.label);
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
+    const byId = new Map(kitchen.customLocations.map((l) => [l.id, l]));
+    const presetIds = new Set(LOCATIONS.map((l) => l.id));
+    const merged = LOCATIONS.map((p) => {
+      const o = byId.get(p.id);
+      return o ? { id: p.id, label: o.label || p.label, color: o.color || p.color, icon: o.icon || p.icon } : p;
     });
-    return [...LOCATIONS, ...extra];
+    const custom = kitchen.customLocations.filter((l) => !presetIds.has(l.id) && l.label && l.color);
+    return [...merged, ...custom];
   }, [kitchen.customLocations]);
 
   const decorated = useMemo(() => kitchen.items.map((i) => decorateItem(i, allLocations)), [kitchen.items, allLocations]);
@@ -268,6 +270,18 @@ export default function App() {
     const used = new Set(allLocations.map((l) => l.color));
     const color = LOCATION_PALETTE.find((c) => !used.has(c)) || LOCATION_PALETTE[allLocations.length % LOCATION_PALETTE.length];
     kitchen.addLocation({ id: 'loc' + Date.now(), label, color, icon: guessLocationIcon(label) });
+  };
+  const renameLocation = (id: string) => (label: string) => {
+    const t = label.trim();
+    if (t) kitchen.updateLocation(id, { label: t });
+  };
+  const renamePantryBin = (label: string) => {
+    const cur = st.selectedPantryBin;
+    if (!cur) return;
+    const canon = canonicalBin(label.trim(), kitchen.items) || label.trim();
+    if (!canon || canon === cur) return;
+    kitchen.renameBin(cur, canon, kitchen.items);
+    patch({ selectedPantryBin: canon });
   };
   const pickLocation = (id: LocationId) => () => updateDraft({ location: id, bin: id === 'pantry' ? st.addDraft.bin : '' });
   const setDraftBin = (e: ChangeEvent<HTMLInputElement>) => updateDraft({ bin: e.target.value });
@@ -1001,9 +1015,11 @@ export default function App() {
       case 'location':
         return currentLocationIsPantry ? (
           <PantryBinsScreen
+            label={locationMeta(currentLocationId, allLocations).label}
             count={pantryStats.count}
             cards={pantryBinCards}
             onBack={backToHome}
+            onRename={renameLocation(currentLocationId)}
           />
         ) : (
           <LocationScreen
@@ -1013,6 +1029,7 @@ export default function App() {
             filterChips={filterChips}
             sections={locationSections}
             onBack={backToHome}
+            onRename={renameLocation(currentLocationId)}
           />
         );
       case 'pantryBin':
@@ -1024,6 +1041,7 @@ export default function App() {
             filterChips={[]}
             sections={pantryBinSections}
             onBack={backToPantry}
+            onRename={pantryBinIsAll ? undefined : renamePantryBin}
           />
         );
       case 'itemDetail': {
@@ -1040,6 +1058,7 @@ export default function App() {
             binOptions={binNames.map((b) => ({ label: b, style: neutralChipStyle(normBin(si.bin) === normBin(b)), onClick: setItemBin(b) }))}
             unitOptions={UNITS.map((u) => ({ label: u, style: neutralChipStyle((si.unit || 'count') === u), onClick: setItemUnit(u) }))}
             onQtyCommit={commitItemQty}
+            onRename={(v) => kitchen.updateItem(si.id, { name: v })}
             onClose={closeItemDetail}
             onRemove={removeItemHandler}
             needsSorting={si.needsSorting}
@@ -1489,13 +1508,56 @@ function RowCard({ row }: { row: { id: string; name: string; dotColor: string; m
   );
 }
 
-function LocationScreen(props: { label: string; count: number; showFilters: boolean; filterChips: { id: string | null; label: string; style: CSSProperties; onClick: () => void }[]; sections: Section[]; onBack: () => void }) {
-  const { label, count, showFilters, filterChips, sections, onBack } = props;
+// A heading that can be renamed in place: tap the pencil to swap in an input.
+function EditableTitle({ value, onSave, textClass, textStyle }: {
+  value: string; onSave: (v: string) => void; textClass: string; textStyle?: CSSProperties;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  if (editing) {
+    const commit = () => {
+      const t = draft.trim();
+      if (t && t !== value) onSave(t);
+      setEditing(false);
+    };
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
+        className={`${textClass} w-full rounded-lg px-2 py-0.5 outline-none`}
+        style={{ ...textStyle, border: `1.5px solid ${border}`, background: card }}
+      />
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div className={textClass} style={textStyle}>{value}</div>
+      <button
+        onClick={() => { setDraft(value); setEditing(true); }}
+        aria-label="Rename"
+        className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
+        style={{ background: section }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+      </button>
+    </div>
+  );
+}
+
+function LocationScreen(props: { label: string; count: number; showFilters: boolean; filterChips: { id: string | null; label: string; style: CSSProperties; onClick: () => void }[]; sections: Section[]; onBack: () => void; onRename?: (v: string) => void }) {
+  const { label, count, showFilters, filterChips, sections, onBack, onRename } = props;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-5 pb-3 shrink-0">
         <BackLink label="Back" onClick={onBack} />
-        <div className="text-[24px] font-extrabold mt-2.5" style={{ color: text }}>{label}</div>
+        <div className="mt-2.5">
+          {onRename
+            ? <EditableTitle value={label} onSave={onRename} textClass="text-[24px] font-extrabold" textStyle={{ color: text }} />
+            : <div className="text-[24px] font-extrabold" style={{ color: text }}>{label}</div>}
+        </div>
         <div className="text-[13.5px] mt-0.5" style={{ color: muted }}>{count} items</div>
         {showFilters && (
           <div className="noscroll flex gap-2 mt-3.5 overflow-x-auto pb-0.5">
@@ -1516,11 +1578,13 @@ function LocationScreen(props: { label: string; count: number; showFilters: bool
 }
 
 function PantryBinsScreen(props: {
+  label: string;
   count: number;
   cards: { key: string; label: string; count: number; alerts: number; onOpen: () => void }[];
   onBack: () => void;
+  onRename: (v: string) => void;
 }) {
-  const { count, cards, onBack } = props;
+  const { label, count, cards, onBack, onRename } = props;
   const binColor = LOCATION_MAP['pantry'].color;
   const fg = onColor(binColor);
   const fgMuted = onColorMuted(binColor);
@@ -1528,7 +1592,9 @@ function PantryBinsScreen(props: {
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-5 pb-3 shrink-0">
         <BackLink label="Back" onClick={onBack} />
-        <div className="text-[24px] font-extrabold mt-2.5" style={{ color: text }}>Pantry</div>
+        <div className="mt-2.5">
+          <EditableTitle value={label} onSave={onRename} textClass="text-[24px] font-extrabold" textStyle={{ color: text }} />
+        </div>
         <div className="text-[13.5px] mt-0.5" style={{ color: muted }}>{count} items</div>
       </div>
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-10">
@@ -1585,13 +1651,14 @@ function ItemDetailScreen(props: {
   binOptions: { label: string; style: CSSProperties; onClick: () => void }[];
   unitOptions: { label: string; style: CSSProperties; onClick: () => void }[];
   onQtyCommit: (raw: string) => void;
+  onRename: (v: string) => void;
   onClose: () => void;
   onRemove: () => void;
   needsSorting: boolean;
   sortReason: 'new' | 'restocked' | null;
   onMarkSorted: () => void;
 }) {
-  const { item, statusOptions, locationOptions, isPantry, binOptions, unitOptions, onQtyCommit, onClose, onRemove, needsSorting, sortReason, onMarkSorted } = props;
+  const { item, statusOptions, locationOptions, isPantry, binOptions, unitOptions, onQtyCommit, onRename, onClose, onRemove, needsSorting, sortReason, onMarkSorted } = props;
   const [qtyDraft, setQtyDraft] = useState(item.quantity != null ? String(item.quantity) : '');
   const commitQty = () => { if (qtyDraft.trim() !== (item.quantity != null ? String(item.quantity) : '')) onQtyCommit(qtyDraft); };
   return (
@@ -1601,7 +1668,9 @@ function ItemDetailScreen(props: {
         <div className="w-full rounded-2xl mt-4 flex items-center justify-center" style={{ aspectRatio: '16/10', background: section }}>
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8z" /><path d="M4 8l8 4 8-4M12 12v8" /></svg>
         </div>
-        <div className="text-[22px] font-extrabold mt-4.5" style={{ color: text }}>{item.name}</div>
+        <div className="mt-4.5">
+          <EditableTitle value={item.name} onSave={onRename} textClass="text-[22px] font-extrabold" textStyle={{ color: text }} />
+        </div>
         {needsSorting && (
           <div className="mt-3 rounded-2xl p-3.5" style={{ background: hexToRgba(accent, 0.08), border: `1.5px solid ${hexToRgba(accent, 0.25)}` }}>
             <div className="text-[13px] font-bold" style={{ color: accent }}>

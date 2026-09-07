@@ -57,8 +57,8 @@ export function useKitchenData() {
       collection(db, 'locations'),
       (snap) => {
         setCustomLocations(snap.docs.map((d) => {
-          const l = d.data() as Omit<LocationDef, 'id'>;
-          return { id: d.id, label: l.label, color: l.color, icon: l.icon || 'box' };
+          const l = d.data() as Partial<Omit<LocationDef, 'id'>>;
+          return { id: d.id, label: l.label || '', color: l.color || '', icon: l.icon || 'box' };
         }));
       },
       () => {}
@@ -173,6 +173,26 @@ export function useKitchenData() {
     if (!db) return;
     const { id, ...body } = loc;
     setDoc(doc(db, 'locations', id), body).catch(() => {});
+  }, []);
+
+  /** Patch a location's label/color/icon. For a built-in id this writes an override doc. */
+  const updateLocation = useCallback((id: string, patch: Partial<Omit<LocationDef, 'id'>>) => {
+    const db = getDb();
+    if (!db || !id) return;
+    setDoc(doc(db, 'locations', id), patch, { merge: true }).catch(() => {});
+  }, []);
+
+  /** Rename a pantry bin everywhere it's used (one batch over the matching items). */
+  const renameBin = useCallback((fromBin: string, toBin: string, allItems: Item[]) => {
+    const db = getDb();
+    const to = toBin.trim();
+    if (!db || !to) return;
+    const from = fromBin.trim().toLowerCase();
+    const affected = allItems.filter((i) => i.location === 'pantry' && (i.bin || '').trim().toLowerCase() === from);
+    if (!affected.length) return;
+    const batch = writeBatch(db);
+    affected.forEach((i) => batch.update(doc(db, 'items', i.id), { bin: to }));
+    batch.commit().catch(() => {});
   }, []);
 
   const addManualGroceryItem = useCallback((name: string) => {
@@ -343,7 +363,7 @@ export function useKitchenData() {
 
   return {
     items, customLocations, groceryExtras, recipes, mealPlanEntries, mealPlanShopWeek, preparedFood, status,
-    setItemStatus, updateItem, saveItem, removeItem, addReceiptItems, addLocation,
+    setItemStatus, updateItem, saveItem, removeItem, addReceiptItems, addLocation, updateLocation, renameBin,
     addManualGroceryItem, removeManualGroceryItem,
     saveRecipe, updateRecipe, deleteRecipe,
     addMealPlanEntry, addMealPlanEntries, updateMealPlanEntry, removeMealPlanEntry, setShopWeek,
