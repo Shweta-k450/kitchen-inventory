@@ -7,7 +7,7 @@ import {
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
-  decorateItem, daysUntil, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
+  decorateItem, daysUntil, itemEmoji, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
   buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
@@ -1551,7 +1551,10 @@ function RowCard({ row }: { row: { id: string; name: string; dotColor: string; m
   const fg = onColor(bg);
   const fgMuted = onColorMuted(bg);
   return (
-    <div onClick={row.onOpen} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 mb-2 cursor-pointer" style={{ background: bg, border: '1px solid rgba(0,0,0,0.06)' }}>
+    <div onClick={row.onOpen} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2 cursor-pointer" style={{ background: bg, border: '1px solid rgba(0,0,0,0.06)' }}>
+      <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-[19px] leading-none" style={{ background: 'rgba(255,255,255,0.55)' }}>
+        <span aria-hidden>{itemEmoji(row.name)}</span>
+      </div>
       <div className="flex-1 min-w-0">
         <div className="text-[14.5px] font-semibold" style={{ color: fg }}>{row.name}</div>
         {row.meta && <div className="text-[12.5px] mt-0.5" style={{ color: fgMuted }}>{row.meta}</div>}
@@ -1722,8 +1725,8 @@ function ItemDetailScreen(props: {
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-24">
         <BackLink label="Back" onClick={onClose} />
         <div className="flex items-center gap-3.5 mt-4">
-          <div className="shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: section }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8z" /><path d="M4 8l8 4 8-4M12 12v8" /></svg>
+          <div className="shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center text-[34px] leading-none" style={{ background: section }}>
+            <span aria-hidden>{itemEmoji(item.name, item.category)}</span>
           </div>
           <div className="flex-1 min-w-0">
             <EditableTitle value={item.name} onSave={onRename} textClass="text-[21px] font-extrabold leading-tight" textStyle={{ color: text }} />
@@ -2161,8 +2164,11 @@ function GroceryScreen(props: {
               const fg = onColor(bg);
               const fgMuted = onColorMuted(bg);
               return (
-                <div key={row.id} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 mb-2" style={{ background: bg, border: '1px solid rgba(0,0,0,0.06)' }}>
+                <div key={row.id} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2" style={{ background: bg, border: '1px solid rgba(0,0,0,0.06)' }}>
                   <div onClick={row.onCheck} className="shrink-0 w-6 h-6 rounded-full cursor-pointer" style={{ border: `2px solid ${fgMuted}` }} />
+                  <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-[19px] leading-none" style={{ background: 'rgba(255,255,255,0.55)' }}>
+                    <span aria-hidden>{itemEmoji(row.name)}</span>
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[14.5px] font-semibold" style={{ color: fg }}>{row.name}</div>
                     {row.hasMeta && <div className="text-[12.5px] mt-0.5" style={{ color: fgMuted }}>{row.meta}</div>}
