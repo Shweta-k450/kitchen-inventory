@@ -137,11 +137,177 @@ async function fetchHtml(url: URL): Promise<string> {
   }
 }
 
+// ---------- YouTube ----------
+// We can't watch the video, but the recipe usually lives in the video description
+// (creators paste it there) and/or the auto-caption transcript. Grab both and let
+// Claude reconstruct the recipe from that text.
+
+const YT_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be']);
+
+function youtubeVideoId(u: URL): string | null {
+  const host = u.hostname.toLowerCase();
+  if (!YT_HOSTS.has(host)) return null;
+  const parts = u.pathname.split('/').filter(Boolean);
+  let id = '';
+  if (host === 'youtu.be' || host === 'www.youtu.be') id = parts[0] || '';
+  else if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+  else if (['shorts', 'live', 'embed', 'v'].includes(parts[0] || '')) id = parts[1] || '';
+  return /^[\w-]{11}$/.test(id) ? id : null;
+}
+
+async function ytFetchText(url: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        Cookie: 'CONSENT=YES+cb; PREF=hl=en',
+      },
+    });
+    if (!res.ok) return '';
+    const buf = await res.arrayBuffer();
+    return new TextDecoder('utf-8').decode(buf.slice(0, 3_000_000));
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** JSON-unescape a string captured from raw page JSON (handles \n, \uXXXX, \" …). */
+function jsonStr(raw: string): string {
+  try { return JSON.parse('"' + raw + '"'); } catch { return raw; }
+}
+
+async function fetchYouTubeContext(id: string): Promise<{ title: string; description: string; thumbnailUrl: string; transcript: string }> {
+  let title = '';
+  let description = '';
+  let thumbnailUrl = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  let transcript = '';
+
+  // (a) Data API — most reliable for the full description + title, when a key is set.
+  const key = process.env.YOUTUBE_API_KEY;
+  if (key) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${key}`, { signal: controller.signal });
+      if (res.ok) {
+        const j = (await res.json()) as { items?: { snippet?: { title?: string; description?: string; thumbnails?: Record<string, { url?: string }> } }[] };
+        const sn = j.items?.[0]?.snippet;
+        if (sn) {
+          title = sn.title || '';
+          description = sn.description || '';
+          const th = sn.thumbnails || {};
+          thumbnailUrl = th.maxres?.url || th.standard?.url || th.high?.url || th.medium?.url || thumbnailUrl;
+        }
+      }
+    } catch { /* fall through to scraping */ } finally { clearTimeout(timer); }
+  }
+
+  // (b) Scrape the watch page — fills in description/title if there's no key, and
+  // carries the caption tracks we need for a transcript.
+  const html = await ytFetchText(`https://www.youtube.com/watch?v=${id}&hl=en`, 10000);
+  if (html) {
+    if (!description) {
+      const m = html.match(/"shortDescription":"((?:\\.|[^"\\])*)"/);
+      if (m) description = jsonStr(m[1]);
+    }
+    if (!title) {
+      const m = html.match(/<title>([^<]*)<\/title>/i);
+      if (m) title = decodeEntities(m[1]).replace(/\s*-\s*YouTube\s*$/i, '').trim();
+    }
+  }
+
+  // (c) Transcript — only bother when the description is too short to hold the recipe.
+  if (html && description.replace(/\s+/g, ' ').trim().length < 600) {
+    try {
+      const tm = html.match(/"captionTracks":(\[.*?\])(?=,"[a-zA-Z])/s);
+      if (tm) {
+        const tracks = JSON.parse(tm[1]) as { baseUrl?: string; languageCode?: string; kind?: string }[];
+        const track =
+          tracks.find((t) => t.languageCode === 'en' && t.kind !== 'asr') ||
+          tracks.find((t) => t.languageCode === 'en') ||
+          tracks[0];
+        let tu: URL | null = null;
+        try { tu = track?.baseUrl ? new URL(track.baseUrl) : null; } catch { tu = null; }
+        if (tu && tu.protocol === 'https:' && (tu.hostname === 'www.youtube.com' || tu.hostname.endsWith('.youtube.com'))) {
+          const xml = await ytFetchText(tu.toString(), 8000);
+          const parts = [...xml.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)].map((x) => decodeEntities(stripTags(x[1])));
+          transcript = parts.join(' ').replace(/\s+/g, ' ').trim();
+        }
+      }
+    } catch { /* transcript is a bonus — ignore failures */ }
+  }
+
+  return { title, description, thumbnailUrl, transcript };
+}
+
+async function importFromYouTube(id: string, url: URL) {
+  const ctx = await fetchYouTubeContext(id);
+  const material = [
+    ctx.title ? `Video title: ${ctx.title}` : '',
+    ctx.description ? `Video description:\n${ctx.description.slice(0, 6000)}` : '',
+    ctx.transcript ? `Auto-generated spoken transcript (rough — quantities may be approximate):\n${ctx.transcript.slice(0, 10000)}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  if (material.replace(/\s+/g, '').length < 40) {
+    return NextResponse.json({ error: 'no_recipe' }, { status: 422 });
+  }
+
+  const prompt =
+    'The text below is the title, description and (sometimes) an auto-generated transcript of a cooking video. ' +
+    'Reconstruct the recipe as JSON: {"name": recipe title as a string, "servings": number of servings as an integer or null, ' +
+    '"ingredients": array of ingredient line strings including quantities where stated (e.g. "2 cups flour") — prefer an explicit ' +
+    'ingredient list in the description over inferring amounts from the transcript, ' +
+    '"instructions": the method as one string with numbered steps separated by newlines}. ' +
+    'Ignore sponsor reads, "like and subscribe", links and off-topic chatter. ' +
+    'If there is no recipe here, reply {"name": null}. Reply with ONLY the JSON object.\n\n' + material;
+
+  let result: unknown;
+  try {
+    result = await callClaudeForJson({ prompt, maxTokens: 3072 });
+  } catch (err) {
+    const code = (err as { code?: string })?.code || 'upstream_error';
+    return NextResponse.json({ error: code }, { status: code === 'not_configured' ? 501 : 502 });
+  }
+
+  const r = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
+  const name = typeof r.name === 'string' ? r.name.trim() : '';
+  const ingredients = Array.isArray(r.ingredients) ? (r.ingredients as unknown[]).map((x) => String(x).trim()).filter(Boolean) : [];
+  if (!name || !ingredients.length) return NextResponse.json({ error: 'no_recipe' }, { status: 422 });
+
+  return NextResponse.json({
+    recipe: {
+      name,
+      servings: typeof r.servings === 'number' && r.servings > 0 ? Math.round(r.servings) : null,
+      ingredientsText: ingredients.join('\n'),
+      instructions: typeof r.instructions === 'string' ? r.instructions : '',
+      photoDataUrl: ctx.thumbnailUrl ? await fetchImage(ctx.thumbnailUrl, url) : null,
+      source: 'ai',
+    },
+  });
+}
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const raw = body && typeof body.url === 'string' ? body.url.trim() : '';
   const url = raw ? isSafeUrl(raw) : null;
   if (!url) return NextResponse.json({ error: 'bad_url' }, { status: 400 });
+
+  const ytId = youtubeVideoId(url);
+  if (ytId) {
+    try {
+      return await importFromYouTube(ytId, url);
+    } catch (err) {
+      const code = (err as { name?: string })?.name === 'AbortError' ? 'timeout' : ((err as { code?: string })?.code || 'fetch_failed');
+      return NextResponse.json({ error: code }, { status: 502 });
+    }
+  }
 
   let html: string;
   try {

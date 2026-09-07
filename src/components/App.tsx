@@ -525,8 +525,8 @@ export default function App() {
     const { recipe, error } = await importRecipeApi(url);
     if (error || !recipe) {
       const msg = error === 'bad_url' ? "That doesn't look like a valid link."
-        : error === 'timeout' ? 'That page took too long to respond.'
-        : error === 'no_recipe' ? "Couldn't find a recipe on that page — try pasting it in below."
+        : error === 'timeout' ? 'That link took too long to respond.'
+        : error === 'no_recipe' ? "Couldn't pull a recipe from that link — for a video, the recipe may not be in its description. Try pasting it in below."
         : (error === 'not_configured' || error === 'network_error') ? "Recipe import isn't available right now."
         : "Couldn't read that link — try pasting the recipe in below.";
       patch({ recipeImportStatus: 'error', recipeImportError: msg });
@@ -2409,16 +2409,16 @@ function RecipeAdd1Screen(props: {
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
         <BackLink label="Cancel" onClick={onCancel} />
         <div className="text-2xl font-extrabold mt-3.5" style={{ color: text }}>{title}</div>
-        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Import from a link, or paste it in — either way you&apos;ll review the ingredients next.</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Import from a recipe page or a YouTube link, or paste it in — either way you&apos;ll review the ingredients next.</div>
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Import from a link</div>
         <div className="flex gap-2">
-          <input value={url} onChange={onUrlChange} inputMode="url" placeholder="https://…" className="flex-1 min-w-0 h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
+          <input value={url} onChange={onUrlChange} inputMode="url" placeholder="Recipe page or YouTube link…" className="flex-1 min-w-0 h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
           <button onClick={onImport} disabled={importLoading || !url.trim()} className="shrink-0 px-4 h-[46px] rounded-xl text-white text-[14px] font-bold disabled:opacity-50" style={{ background: accent }}>
             {importLoading ? '…' : 'Fetch'}
           </button>
         </div>
-        {importLoading && <div className="mt-2 text-[13px] font-semibold" style={{ color: muted }}>Reading that page…</div>}
+        {importLoading && <div className="mt-2 text-[13px] font-semibold" style={{ color: muted }}>{/youtu\.?be/i.test(url) ? 'Reading the video description & captions…' : 'Reading that page…'}</div>}
         {importError && <div className="mt-2 p-3 rounded-xl text-[13px] font-semibold" style={{ background: card, border: `1.5px solid ${border}`, color: errorColor }}>{importError}</div>}
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Recipe name</div>

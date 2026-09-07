@@ -47,6 +47,23 @@ Total time: about 20-30 minutes the first time.
 2. Go to **API Keys** and create a new key. Copy it somewhere safe — you won't be able to see it again.
 3. You'll need to add billing details / a small amount of credit for the API to work — the AI features (parsing, nutrition, receipt scanning) use it per-request. Usage at normal household scale is inexpensive (typically well under $1/month), but it isn't covered by Vercel's or Firebase's free tiers, since it's a separate service.
 
+### (Optional) YouTube recipe import
+
+"Add a Recipe → Import from a link" also accepts YouTube links. It reads the video's
+description and auto-captions (never the video itself) and has Claude reconstruct the
+recipe. This works without any extra setup by scraping the watch page, but a free
+YouTube Data API key makes it far more reliable (server-side scraping sometimes hits
+YouTube's consent wall):
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and sign in.
+2. Top bar → project dropdown → **New Project** (name it anything, e.g. "kitchen-inventory"), then select it.
+3. Search bar → **YouTube Data API v3** → open it → **Enable**.
+4. Left menu → **APIs & Services → Credentials → + Create credentials → API key**. Copy the key.
+5. (Recommended) Click the new key → under **API restrictions** choose **Restrict key** → tick **YouTube Data API v3** → Save. Leave "Application restrictions" as None (it's called server-to-server).
+6. Add it as the `YOUTUBE_API_KEY` environment variable in step 4 below.
+
+No billing account is needed — the free quota (10,000 units/day; one video lookup = 1 unit) is far more than a household will ever use. The only per-import cost is the Claude call, ~1–3¢, same as any other link import.
+
 ---
 
 ## 4. Deploy to Vercel
@@ -65,6 +82,7 @@ Total time: about 20-30 minutes the first time.
    | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | from your Firebase config |
    | `NEXT_PUBLIC_FIREBASE_APP_ID` | from your Firebase config |
    | `ANTHROPIC_API_KEY` | the key from step 3 |
+   | `YOUTUBE_API_KEY` | *(optional)* the key from step 3's YouTube section — improves YouTube recipe import |
 
 5. Click **Deploy**. After a minute or two, Vercel gives you a live URL like `kitchen-inventory-yourname.vercel.app`.
 6. Open that URL on your phone and add it to your home screen (Safari: Share -> Add to Home Screen; Chrome/Android: menu -> Add to Home Screen) so it behaves like an app icon. This works now because it's a real website, not a Claude artifact.
