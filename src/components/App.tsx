@@ -1804,7 +1804,8 @@ function ReceiptReviewScreen(props: {
 function Add2Screen(props: { hasPhoto: boolean; name: string; onNameChange: (e: ChangeEvent<HTMLInputElement>) => void; categoryChips: { id: string; label: string; style: CSSProperties; onClick: () => void }[]; onAddCategory: (name: string) => void; onBack: () => void; onContinue: () => void }) {
   const { hasPhoto, name, onNameChange, categoryChips, onAddCategory, onBack, onContinue } = props;
   const [newCat, setNewCat] = useState('');
-  const addCat = () => { onAddCategory(newCat); setNewCat(''); };
+  const [catOpen, setCatOpen] = useState(false);
+  const addCat = () => { if (!newCat.trim()) return; onAddCategory(newCat); setNewCat(''); setCatOpen(false); };
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
@@ -1813,19 +1814,32 @@ function Add2Screen(props: { hasPhoto: boolean; name: string; onNameChange: (e: 
         {hasPhoto && <div className="inline-block mt-3.5 px-3 py-1 rounded-full text-xs font-bold" style={{ background: '#f7e3e5', color: accent }}>Detected automatically — edit if needed</div>}
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Item name</div>
         <input value={name} onChange={onNameChange} placeholder="e.g. Baby Spinach" className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
-        <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Category</div>
-        <div className="flex flex-wrap gap-2">{categoryChips.map((c) => <Chip key={c.id} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
-        <div className="flex gap-2 mt-2.5">
-          <input
-            value={newCat}
-            onChange={(e) => setNewCat(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && newCat.trim()) addCat(); }}
-            placeholder="New category…"
-            className="flex-1 min-w-0 h-[42px] rounded-xl px-3.5 text-sm outline-none"
-            style={{ border: `1.5px solid ${border}`, background: card, color: text }}
-          />
-          <button onClick={addCat} disabled={!newCat.trim()} className="shrink-0 px-4 h-[42px] rounded-xl text-white text-[13px] font-bold disabled:opacity-50" style={{ background: accent }}>Add</button>
+        <div className="flex items-center gap-2 mt-5 mb-2">
+          <div className="text-[12.5px] font-bold uppercase tracking-wide" style={{ color: muted }}>Category</div>
+          <button
+            onClick={() => setCatOpen((v) => !v)}
+            aria-label={catOpen ? 'Cancel new category' : 'Add a category'}
+            className="w-5 h-5 rounded-full flex items-center justify-center"
+            style={{ background: catOpen ? accent : section }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={catOpen ? '#fff' : accent} strokeWidth="2.6" strokeLinecap="round" style={{ transform: catOpen ? 'rotate(45deg)' : 'none' }}><path d="M12 5v14M5 12h14" /></svg>
+          </button>
         </div>
+        {catOpen && (
+          <div className="flex gap-2 mb-2.5">
+            <input
+              value={newCat}
+              autoFocus
+              onChange={(e) => setNewCat(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addCat(); }}
+              placeholder="New category…"
+              className="flex-1 min-w-0 h-[42px] rounded-xl px-3.5 text-sm outline-none"
+              style={{ border: `1.5px solid ${border}`, background: card, color: text }}
+            />
+            <button onClick={addCat} disabled={!newCat.trim()} className="shrink-0 px-4 h-[42px] rounded-xl text-white text-[13px] font-bold disabled:opacity-50" style={{ background: accent }}>Add</button>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">{categoryChips.map((c) => <Chip key={c.id} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
       </div>
       <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
         <button onClick={onContinue} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold" style={{ background: accent }}>Continue</button>
