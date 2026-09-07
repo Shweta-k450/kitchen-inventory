@@ -164,6 +164,8 @@ export default function App() {
   const goGrocery = () => patch({ screen: 'grocery', tab: 'grocery' });
   const goRecipesTab = () => patch({ screen: 'recipes', tab: 'recipes', recipeCatFilter: null, recipeSelectMode: false, recipeSelection: [] });
   const goPlanTab = () => patch({ screen: 'plan', tab: 'plan' });
+  // From the Plan tab: jump straight into a pick-list of all recipes to add to the plan.
+  const goPickRecipesForPlan = () => patch({ screen: 'recipes', tab: 'recipes', recipeCatFilter: '__all__', recipeSelectMode: true, recipeSelection: [] });
   const openSearch = () => patch({ screen: 'search', searchReturnScreen: st.screen });
   const closeSearch = () => patch({ screen: st.searchReturnScreen });
   const setSearchQuery = (e: ChangeEvent<HTMLInputElement>) => patch({ searchQuery: e.target.value });
@@ -1251,7 +1253,7 @@ export default function App() {
             onNextWeek={() => changeWeek(1)}
             needRows={groceryPlanRows.map((r) => ({ id: r.id, text: r.name, sub: r.meta || '' }))}
             onGoGrocery={goGrocery}
-            onGoRecipes={goRecipesTab}
+            onGoRecipes={goPickRecipesForPlan}
             fridge={preparedActive.map((x) => ({
               id: x.p.id, name: x.p.name, madeOn: x.p.madeOn, servingsLeft: x.left, servingsMade: x.p.servingsMade,
               useBy: x.p.useBy || '', fresh: x.fresh, hasEaten: (x.p.eaten || []).length > 0,
@@ -1440,7 +1442,9 @@ export default function App() {
       {showNav && (
         <BottomNav
           activeTab={st.tab}
-          onHome={goHomeTab} onRecipes={goRecipesTab} onPlan={goPlanTab} onGrocery={goGroceryTab} onAdd={startAdd}
+          onHome={goHomeTab} onRecipes={goRecipesTab} onPlan={goPlanTab} onGrocery={goGroceryTab}
+          addVariant={st.screen === 'plan' ? 'plan' : 'item'}
+          onAdd={st.screen === 'plan' ? goPickRecipesForPlan : startAdd}
         />
       )}
     </div>
@@ -2878,8 +2882,8 @@ function PlanAddScreen(props: {
   );
 }
 
-function BottomNav(props: { activeTab: string; onHome: () => void; onRecipes: () => void; onPlan: () => void; onGrocery: () => void; onAdd: () => void }) {
-  const { activeTab, onHome, onRecipes, onPlan, onGrocery, onAdd } = props;
+function BottomNav(props: { activeTab: string; addVariant?: 'item' | 'plan'; onHome: () => void; onRecipes: () => void; onPlan: () => void; onGrocery: () => void; onAdd: () => void }) {
+  const { activeTab, addVariant, onHome, onRecipes, onPlan, onGrocery, onAdd } = props;
   const col = (t: string) => (activeTab === t ? accent : '#a6a496');
   return (
     <div className="relative shrink-0 h-[86px] flex items-start justify-around pt-2.5" style={{ background: card, borderTop: `1px solid ${border}` }}>
@@ -2891,8 +2895,12 @@ function BottomNav(props: { activeTab: string; onHome: () => void; onRecipes: ()
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={col('recipes')} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9a2 2 0 0 1 2 2v15l-6.5-3.5L4 20V5a2 2 0 0 1 2-2z" /></svg>
         <div className="text-[11.5px] font-semibold" style={{ color: col('recipes') }}>Recipes</div>
       </div>
-      <div onClick={onAdd} className="relative -top-[22px] w-14 h-14 rounded-full flex items-center justify-center cursor-pointer shadow-lg" style={{ background: accent }}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+      <div onClick={onAdd} aria-label={addVariant === 'plan' ? 'Add recipes to the plan' : 'Add an item'} className="relative -top-[22px] w-14 h-14 rounded-full flex items-center justify-center cursor-pointer shadow-lg" style={{ background: accent }}>
+        {addVariant === 'plan' ? (
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M4 10h16M8 3v3M16 3v3M12 12.5v5M9.5 15h5" /></svg>
+        ) : (
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        )}
       </div>
       <div onClick={onPlan} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={col('plan')} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M4 10h16M8 3v4M16 3v4M9 14h6" /></svg>
