@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { getDb, firebaseConfigured } from '@/lib/firebase';
 import { INITIAL_ITEMS } from '@/lib/constants';
-import type { Item, Recipe, ManualGroceryItem, MealPlanEntry, PreparedFood, LocationDef } from '@/lib/types';
+import type { Item, Recipe, ManualGroceryItem, MealPlanEntry, PreparedFood, LocationDef, MealSlot } from '@/lib/types';
 
 // Firestore rejects document IDs matching /__.*__/, so this can't be "__settings__".
 const PLAN_SETTINGS_ID = 'settings';
@@ -104,6 +104,7 @@ export function useKitchenData() {
               recipeId: e.recipeId,
               date: e.date,
               servings: e.servings,
+              meal: e.meal ?? null,
               cooked: e.cooked ?? false,
               cookedAt: e.cookedAt ?? null,
               preparedId: e.preparedId ?? null,
@@ -242,12 +243,12 @@ export function useKitchenData() {
     setDoc(doc(db, 'mealPlan', id), { recipeId, date, servings }).catch(() => {});
   }, []);
 
-  const addMealPlanEntries = useCallback((rows: { recipeId: string; date: string; servings: number }[]) => {
+  const addMealPlanEntries = useCallback((rows: { recipeId: string; date: string; servings: number; meal?: MealSlot | null }[]) => {
     const db = getDb();
     if (!db || !rows.length) return;
     const batch = writeBatch(db);
     rows.forEach((r, i) => {
-      batch.set(doc(db, 'mealPlan', 'mpe' + Date.now() + '-' + i), r);
+      batch.set(doc(db, 'mealPlan', 'mpe' + Date.now() + '-' + i), { ...r, meal: r.meal ?? null });
     });
     batch.commit().catch(() => {});
   }, []);
@@ -354,7 +355,7 @@ export function useKitchenData() {
       let shopWeek: string | null = null;
       planSnap.docs.forEach((d) => {
         if (d.id === PLAN_SETTINGS_ID) shopWeek = (d.data() as { shopWeekOf?: string | null }).shopWeekOf ?? null;
-        else { const e = d.data() as Omit<MealPlanEntry, 'id'>; planEntries.push({ id: d.id, recipeId: e.recipeId, date: e.date, servings: e.servings, cooked: e.cooked ?? false, cookedAt: e.cookedAt ?? null, preparedId: e.preparedId ?? null }); }
+        else { const e = d.data() as Omit<MealPlanEntry, 'id'>; planEntries.push({ id: d.id, recipeId: e.recipeId, date: e.date, servings: e.servings, meal: e.meal ?? null, cooked: e.cooked ?? false, cookedAt: e.cookedAt ?? null, preparedId: e.preparedId ?? null }); }
       });
       setMealPlanEntries(planEntries);
       setMealPlanShopWeek(shopWeek);

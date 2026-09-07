@@ -92,3 +92,19 @@ button {
   .fr-door { animation-duration: 4s; }
   .fr-shake { animation: none; }
 }
+
+/* "searching a book" loader — a magnifying glass roaming over an open book */
+@keyframes bk-glass {
+  0%   { transform: translate(-6px, -4px) rotate(-10deg) scale(1); }
+  25%  { transform: translate(7px, 1px) rotate(8deg) scale(1.06); }
+  50%  { transform: translate(1px, 6px) rotate(-5deg) scale(1); }
+  75%  { transform: translate(-5px, 3px) rotate(6deg) scale(1.04); }
+  100% { transform: translate(-6px, -4px) rotate(-10deg) scale(1); }
+}
+@keyframes bk-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+.bk-glass { transform-box: fill-box; transform-origin: center; animation: bk-glass 2.6s ease-in-out infinite; }
+.bk-bob   { transform-box: fill-box; transform-origin: center; animation: bk-bob 2.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .bk-glass { animation-duration: 5s; }
+  .bk-bob { animation: none; }
+}

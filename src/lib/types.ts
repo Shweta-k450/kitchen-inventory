@@ -69,12 +69,15 @@ export interface Recipe {
   category?: string | null; // recipe category, e.g. "Dinner", "South Indian"
 }
 
+export type MealSlot = 'breakfast' | 'brunch' | 'lunch' | 'snack' | 'dinner';
+
 /** One recipe scheduled onto a day of the rolling meal plan. */
 export interface MealPlanEntry {
   id: string;
   recipeId: string;
   date: string; // 'YYYY-MM-DD'
   servings: number; // servings to make that day
+  meal?: MealSlot | null; // which meal of the day
   cooked?: boolean;
   cookedAt?: string | null; // 'YYYY-MM-DD' the day it was cooked
   preparedId?: string | null; // links to the PreparedFood record it produced

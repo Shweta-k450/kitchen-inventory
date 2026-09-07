@@ -1,4 +1,14 @@
-import type { CategoryDef, StoreDef, Item, DateType, LocationId, LocationDef } from './types';
+import type { CategoryDef, StoreDef, Item, DateType, LocationId, LocationDef, MealSlot } from './types';
+
+// Meals of the day, in the order they're shown on the plan. `color` is a soft
+// tint used for the little marker beside each meal's heading.
+export const MEAL_SLOTS: { id: MealSlot; label: string; color: string }[] = [
+  { id: 'breakfast', label: 'Breakfast', color: '#EFCB84' },
+  { id: 'brunch', label: 'Brunch', color: '#FFA9A5' },
+  { id: 'lunch', label: 'Lunch', color: '#B2DD9E' },
+  { id: 'snack', label: 'Snack', color: '#AD9547' },
+  { id: 'dinner', label: 'Dinner', color: '#2488C5' },
+];
 
 // Palette (paint-chip set): Pool at Sunset #2488C5, Mint Chip #B2DD9E,
 // Pink Guava #FFA9A5, Fresh Snow #F4E4D9, Olive Jar #AD9547, Ox-Blood #601A00,

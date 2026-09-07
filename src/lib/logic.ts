@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import { CATEGORIES, LOCATIONS, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS, RECIPE_CATEGORY_PRESETS } from './constants';
-import type { Item, ItemStatus, LocationId, LocationDef, LocationIcon, Ingredient, Recipe, PreparedFood, Deduction } from './types';
+import { CATEGORIES, LOCATIONS, MEAL_SLOTS, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS, RECIPE_CATEGORY_PRESETS } from './constants';
+import type { Item, ItemStatus, LocationId, LocationDef, LocationIcon, MealSlot, Ingredient, Recipe, PreparedFood, Deduction } from './types';
 
 export function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
@@ -598,6 +598,24 @@ export function buildIngredientRow(raw: Partial<Ingredient> & { text?: string },
     text, name, quantity, amount, amountText, unit, category: catId,
     trackable: raw && raw.trackable === false ? false : true,
   };
+}
+
+// ---------- meal slots ----------
+/** Best guess of which meal a recipe belongs to, from its category. */
+export function guessMealSlot(category: string | null | undefined): MealSlot {
+  const c = (category || '').toLowerCase();
+  if (/brunch/.test(c)) return 'brunch';
+  if (/breakfast/.test(c)) return 'breakfast';
+  if (/lunch|salad|wrap|sandwich/.test(c)) return 'lunch';
+  if (/snack|dessert|sweet|festive/.test(c)) return 'snack';
+  return 'dinner';
+}
+
+/** {label, color, rank} for a meal slot; falls back to a neutral "Other" for null/unknown. */
+export function mealSlotMeta(slot: string | null | undefined): { id: string; label: string; color: string; rank: number } {
+  const i = MEAL_SLOTS.findIndex((m) => m.id === slot);
+  if (i === -1) return { id: 'other', label: 'Other', color: '#dacabe', rank: 99 };
+  return { ...MEAL_SLOTS[i], rank: i };
 }
 
 const ROUGH_UNITS: Record<string, string> = {

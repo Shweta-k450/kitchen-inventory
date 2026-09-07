@@ -3,7 +3,7 @@
 import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import { useKitchenData } from '@/hooks/useKitchenData';
 import {
-  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, LOCATION_PALETTE, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS, LEFTOVER_DAYS,
+  CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, LOCATION_PALETTE, MEAL_SLOTS, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS, LEFTOVER_DAYS,
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
@@ -13,13 +13,13 @@ import {
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, roughParseIngredient, resizeImageFileToDataUrl,
   parseAmount, formatAmount, knownRecipeCategories, canonicalRecipeCategory, recipeCategoryCards,
   categoryMeta, knownItemCategories, canonicalItemCategory, normCategory,
-  locationMeta, canonicalLocation, guessLocationIcon,
+  locationMeta, canonicalLocation, guessLocationIcon, guessMealSlot, mealSlotMeta,
   buildMealPlanGroceryRows, mondayOf, isoDate, addDays, weekDates, weekRangeLabel, dayLabel,
   planCookEffects, servingsLeft, preparedFreshness,
   type Section, type SectionRow, type CookEffect,
 } from '@/lib/logic';
 import { parseIngredientsApi, estimateNutritionApi, scanReceiptApi, scanItemApi, importRecipeApi } from '@/lib/apiClient';
-import type { Item, LocationId, LocationDef, Ingredient, Recipe, PreparedFood } from '@/lib/types';
+import type { Item, LocationId, LocationDef, MealSlot, Ingredient, Recipe, PreparedFood } from '@/lib/types';
 import { Chip, BackLink } from './Chip';
 import PullToRefresh from './PullToRefresh';
 import SwipeBack from './SwipeBack';
@@ -87,7 +87,7 @@ interface UiState {
   mealPlanWeek: string; // Monday ISO of the viewed week
   recipeSelectMode: boolean;
   recipeSelection: string[];
-  planBatch: { recipeId: string; dates: string[]; servings: string }[];
+  planBatch: { recipeId: string; dates: string[]; servings: string; meal: MealSlot }[];
   planReviewQueue: string[]; // recipe ids awaiting ingredient-amount review
   planEntryEditId: string | null; // meal-plan entry being edited (servings)
   dismissedPlanNeeds: string[]; // shopping-list rows ticked off this session
@@ -675,14 +675,14 @@ export default function App() {
     decoratedRecipes.forEach((r) => m.set(r.id, r));
     return m;
   }, [decoratedRecipes]);
-  type PlanRow = { id: string; recipeId: string; date: string; servings: number; recipeName: string; ready: boolean; cooked: boolean; preparedId: string | null; canUndoCook: boolean };
+  type PlanRow = { id: string; recipeId: string; date: string; servings: number; meal: MealSlot | null; recipeName: string; ready: boolean; cooked: boolean; preparedId: string | null; canUndoCook: boolean };
   const preparedById = new Map(kitchen.preparedFood.map((p) => [p.id, p] as [string, PreparedFood]));
   const planEntriesByDate: Record<string, PlanRow[]> = {};
   kitchen.mealPlanEntries.forEach((e) => {
     const r = decoratedRecipeById.get(e.recipeId);
     const prep = e.preparedId ? preparedById.get(e.preparedId) : undefined;
     (planEntriesByDate[e.date] = planEntriesByDate[e.date] || []).push({
-      id: e.id, recipeId: e.recipeId, date: e.date, servings: e.servings,
+      id: e.id, recipeId: e.recipeId, date: e.date, servings: e.servings, meal: e.meal ?? null,
       recipeName: r ? r.name : 'Deleted recipe', ready: r ? r.readiness.ready : false,
       cooked: !!e.cooked, preparedId: e.preparedId ?? null,
       canUndoCook: !!prep && (prep.eaten || []).length === 0,
@@ -775,13 +775,14 @@ export default function App() {
     const defaultDay = weekDayIsos.includes(todayIso) ? todayIso : weekDayIsos[0];
     const rows = st.recipeSelection.map((rid) => {
       const r = kitchen.recipes.find((x) => x.id === rid);
-      return { recipeId: rid, dates: [defaultDay], servings: String((r && r.servings) || 2) };
+      return { recipeId: rid, dates: [defaultDay], servings: String((r && r.servings) || 2), meal: guessMealSlot(r?.category) };
     });
     patch({ screen: 'planAdd', planBatch: rows });
   };
-  const updatePlanBatchRow = (recipeId: string, p: Partial<{ dates: string[]; servings: string }>) => patch({
+  const updatePlanBatchRow = (recipeId: string, p: Partial<{ dates: string[]; servings: string; meal: MealSlot }>) => patch({
     planBatch: st.planBatch.map((b) => (b.recipeId === recipeId ? { ...b, ...p } : b)),
   });
+  const setPlanBatchMeal = (recipeId: string, meal: MealSlot) => updatePlanBatchRow(recipeId, { meal });
   const togglePlanBatchDay = (recipeId: string, iso: string) => patch({
     planBatch: st.planBatch.map((b) => (b.recipeId === recipeId
       ? { ...b, dates: b.dates.includes(iso) ? b.dates.filter((d) => d !== iso) : [...b.dates, iso] }
@@ -789,7 +790,7 @@ export default function App() {
   });
   const planBatchEntries = () => st.planBatch.flatMap((b) => {
     const servings = Math.max(1, parseInt(b.servings, 10) || 1);
-    return b.dates.map((date) => ({ recipeId: b.recipeId, date, servings }));
+    return b.dates.map((date) => ({ recipeId: b.recipeId, date, servings, meal: b.meal }));
   });
   const cancelPlanAdd = () => patch({ screen: 'recipes', tab: 'recipes', planBatch: [], planReviewQueue: [], recipeSelectMode: false, recipeSelection: [] });
 
@@ -1238,7 +1239,7 @@ export default function App() {
             days={weekDayIsos.map((iso) => ({
               iso, ...dayLabel(iso), isToday: iso === todayIso,
               entries: (planEntriesByDate[iso] || []).map((e) => ({
-                id: e.id, name: e.recipeName, servings: e.servings, ready: e.ready, cooked: e.cooked,
+                id: e.id, name: e.recipeName, servings: e.servings, ready: e.ready, cooked: e.cooked, meal: e.meal,
                 onInc: setPlanServings(e.id, 1, e.servings), onDec: setPlanServings(e.id, -1, e.servings),
                 onRemove: removePlanEntry(e.id),
                 onOpen: openRecipe('plan')(e.recipeId),
@@ -1286,6 +1287,7 @@ export default function App() {
                   const dl = dayLabel(iso);
                   return { label: `${dl.weekday} ${dl.day}`, active: b.dates.includes(iso), onClick: () => togglePlanBatchDay(b.recipeId, iso) };
                 }),
+                mealChips: MEAL_SLOTS.map((m) => ({ label: m.label, active: b.meal === m.id, onClick: () => setPlanBatchMeal(b.recipeId, m.id) })),
                 onServings: (e: ChangeEvent<HTMLInputElement>) => updatePlanBatchRow(b.recipeId, { servings: e.target.value }),
               };
             })}
@@ -1669,13 +1671,30 @@ function FridgeLoader() {
   );
 }
 
-function LoadingOverlay({ label, solid, icon }: { label: string; solid?: boolean; icon?: 'cooker' | 'fridge' }) {
+// A magnifying glass roaming over an open book — used while an AI call reads a recipe.
+function BookSearchLoader() {
+  return (
+    <svg width="84" height="84" viewBox="0 0 64 64" fill="none" aria-hidden>
+      <g className="bk-bob">
+        <path d="M32 15c-6-4-15-4-23-1v34c8-3 17-3 23 1 6-4 15-4 23-1V14c-8-3-17-3-23 1z" fill="#f7e3e5" stroke={accent} strokeWidth="2.4" strokeLinejoin="round" />
+        <path d="M32 15v34" stroke={accent} strokeWidth="2.2" />
+        <path d="M13 22h13M13 29h13M38 22h13M38 29h13" stroke={accent} strokeWidth="1.6" strokeOpacity="0.45" strokeLinecap="round" />
+        <g className="bk-glass">
+          <circle cx="33" cy="31" r="8" fill="rgba(255,255,255,0.55)" stroke={accent} strokeWidth="2.6" />
+          <path d="M39 37l6 6" stroke={accent} strokeWidth="3.2" strokeLinecap="round" />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+function LoadingOverlay({ label, solid, icon }: { label: string; solid?: boolean; icon?: 'cooker' | 'fridge' | 'book' }) {
   return (
     <div
       className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3.5 px-8 text-center"
       style={solid ? { background: '#fff' } : { background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
     >
-      {icon === 'fridge' ? <FridgeLoader /> : <CookerLoader />}
+      {icon === 'fridge' ? <FridgeLoader /> : icon === 'book' ? <BookSearchLoader /> : <CookerLoader />}
       <div className="text-[13.5px] font-semibold" style={{ color: muted }}>{label}</div>
     </div>
   );
@@ -2567,7 +2586,6 @@ function RecipeAdd2Screen(props: {
         <BackLink label={backLabel} onClick={onBack} />
         <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>{title}</div>
         <div className="text-[13.5px] mt-1" style={{ color: muted }}>{subtitle}</div>
-        {loading && <div className="mt-4 text-center text-[13.5px] font-semibold" style={{ color: muted }}>Reading amounts…</div>}
 
         {rows.map((row) => {
           const bg = row.catDot;
@@ -2610,6 +2628,7 @@ function RecipeAdd2Screen(props: {
       <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
         <button onClick={onContinue} disabled={continueDisabled} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold disabled:opacity-50" style={{ background: accent }}>{continueLabel}</button>
       </div>
+      {loading && <LoadingOverlay solid icon="book" label="Reading amounts…" />}
     </div>
   );
 }
@@ -2664,7 +2683,7 @@ function RecipeAdd3Screen(props: {
 }
 
 interface PlanEntryRow {
-  id: string; name: string; servings: number; ready: boolean; cooked: boolean;
+  id: string; name: string; servings: number; ready: boolean; cooked: boolean; meal: MealSlot | null;
   onInc: () => void; onDec: () => void; onRemove: () => void; onOpen: () => void;
   onCook: (() => void) | null; onUndoCook: (() => void) | null;
 }
@@ -2689,6 +2708,18 @@ function PlanScreen(props: {
   const { view, onSetView, weekLabel, days, hasAnyEntries, shopWeekActive, onToggleShop, onPrevWeek, onNextWeek, needRows, onGoGrocery, onGoRecipes, fridge, eatenThisWeek } = props;
   const weekHasEntries = days.some((d) => d.entries.length);
   const freshColor = (f: 'fresh' | 'soon' | 'past') => (f === 'past' ? errorColor : f === 'soon' ? '#7e4c25' : '#3d6218');
+  const mealGroups = (entries: PlanEntryRow[]) => {
+    const buckets = new Map<string, PlanEntryRow[]>();
+    entries.forEach((e) => {
+      const key = e.meal || 'other';
+      const arr = buckets.get(key) ?? [];
+      arr.push(e);
+      buckets.set(key, arr);
+    });
+    return [...buckets.entries()]
+      .map(([key, es]) => ({ meta: mealSlotMeta(key === 'other' ? null : key), entries: es }))
+      .sort((a, b) => a.meta.rank - b.meta.rank);
+  };
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-6 pb-3 shrink-0">
@@ -2736,31 +2767,48 @@ function PlanScreen(props: {
                   {d.weekday} {d.day}{d.isToday ? ' · Today' : ''}
                 </div>
                 {d.entries.length === 0 && <div className="text-[12.5px] px-1 py-1" style={{ color: '#a6a496' }}>—</div>}
-                {d.entries.map((e) => (
-                  <div key={e.id} className="rounded-2xl px-3.5 py-3 mb-2" style={{ background: card, border: `1.5px solid ${border}`, opacity: e.cooked ? 0.7 : 1 }}>
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: e.cooked ? muted : (e.ready ? '#3d6218' : errorColor) }} />
-                      <div onClick={e.onOpen} className="flex-1 min-w-0 cursor-pointer">
-                        <div className="text-[14px] font-semibold truncate" style={{ color: text }}>{e.name}</div>
-                        <div className="text-[12px] mt-0.5" style={{ color: muted }}>{e.cooked ? `Cooked · ${e.servings} servings` : (e.ready ? 'Ready to cook' : 'Missing ingredients')}</div>
+                {mealGroups(d.entries).map((g, _gi, arr) => (
+                  <div key={g.meta.id}>
+                    {!(arr.length === 1 && g.meta.id === 'other') && (
+                      <div className="flex items-center gap-2 mt-2.5 mb-1.5">
+                        <div className="w-1 h-3.5 rounded-full shrink-0" style={{ background: g.meta.color }} />
+                        <div className="text-[10.5px] font-bold uppercase tracking-[0.09em]" style={{ color: muted }}>{g.meta.label}</div>
                       </div>
-                      {!e.cooked && (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button onClick={e.onDec} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>−</button>
-                          <div className="text-[12.5px] font-bold w-12 text-center" style={{ color: text }}>{e.servings} srv</div>
-                          <button onClick={e.onInc} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>+</button>
+                    )}
+                    {g.entries.map((e) => (
+                      <div key={e.id} className="rounded-2xl px-3.5 py-3 mb-2" style={{ background: card, border: `1.5px solid ${border}`, opacity: e.cooked ? 0.7 : 1 }}>
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ background: e.cooked ? muted : (e.ready ? '#3d6218' : errorColor) }} />
+                          <div onClick={e.onOpen} className="flex-1 min-w-0 cursor-pointer">
+                            <div className="text-[14px] font-semibold truncate" style={{ color: text }}>{e.name}</div>
+                            <div className="text-[12px] mt-0.5" style={{ color: muted }}>{e.cooked ? `Cooked · ${e.servings} servings` : (e.ready ? 'Ready to cook' : 'Missing ingredients')}</div>
+                          </div>
+                          {!e.cooked && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button onClick={e.onDec} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>−</button>
+                              <div className="text-[12.5px] font-bold w-12 text-center" style={{ color: text }}>{e.servings} srv</div>
+                              <button onClick={e.onInc} className="w-6 h-6 rounded-full text-[15px] font-bold" style={{ background: section, color: text }}>+</button>
+                            </div>
+                          )}
+                          <div onClick={e.onRemove} className="shrink-0 cursor-pointer" aria-label="Remove">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6a496" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                          </div>
                         </div>
-                      )}
-                      <div onClick={e.onRemove} className="shrink-0 cursor-pointer" aria-label="Remove">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6a496" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                        {e.onCook && (
+                          <div className="flex justify-end mt-2">
+                            <button onClick={e.onCook} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold" style={{ background: hexToRgba(accent, 0.09), color: accent }}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11h16M6 11v6a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6M8.5 7c0-1.4.8-2 .8-3M12 7c0-1.4.8-2 .8-3M15.5 7c0-1.4.8-2 .8-3" /></svg>
+                              Cook this
+                            </button>
+                          </div>
+                        )}
+                        {e.cooked && e.onUndoCook && (
+                          <div className="flex justify-end mt-1.5">
+                            <div onClick={e.onUndoCook} className="text-[11.5px] font-semibold cursor-pointer" style={{ color: muted }}>Undo cook</div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {e.onCook && (
-                      <button onClick={e.onCook} className="w-full mt-2.5 h-9 rounded-lg text-white text-[13px] font-bold" style={{ background: accent }}>Cook this</button>
-                    )}
-                    {e.cooked && e.onUndoCook && (
-                      <div onClick={e.onUndoCook} className="mt-2 text-center text-[12px] font-semibold cursor-pointer" style={{ color: accent }}>Undo cook</div>
-                    )}
+                    ))}
                   </div>
                 ))}
               </div>
@@ -2863,24 +2911,36 @@ function CookConfirmScreen(props: {
 }
 
 function PlanAddScreen(props: {
-  rows: { recipeId: string; name: string; servings: string; dayCount: number; dayChips: { label: string; active: boolean; onClick: () => void }[]; onServings: (e: ChangeEvent<HTMLInputElement>) => void }[];
+  rows: { recipeId: string; name: string; servings: string; dayCount: number;
+    dayChips: { label: string; active: boolean; onClick: () => void }[];
+    mealChips: { label: string; active: boolean; onClick: () => void }[];
+    onServings: (e: ChangeEvent<HTMLInputElement>) => void }[];
   totalEntries: number;
   onCancel: () => void; onConfirm: () => void;
 }) {
   const { rows, totalEntries, onCancel, onConfirm } = props;
+  const chipStyleFor = (active: boolean) => (active
+    ? { background: accent, color: 'white', border: 'none', fontWeight: 700 }
+    : { background: 'white', color: text, border: `1.5px solid ${border}`, fontWeight: 500 });
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
         <BackLink label="Cancel" onClick={onCancel} />
         <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Add to Meal Plan</div>
-        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Tap one or more days for each recipe. You may be asked to confirm ingredient amounts next.</div>
+        <div className="text-[13.5px] mt-1" style={{ color: muted }}>Pick the meal and one or more days for each recipe. You may be asked to confirm ingredient amounts next.</div>
         {rows.map((row) => (
           <div key={row.recipeId} className="rounded-2xl p-3.5 mt-3" style={{ background: card, border: `1.5px solid ${border}` }}>
             <div className="text-[14.5px] font-semibold" style={{ color: text }}>{row.name}</div>
+            <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Meal</div>
+            <div className="flex flex-wrap gap-1.5">
+              {row.mealChips.map((c) => (
+                <Chip key={c.label} label={c.label} style={chipStyleFor(c.active)} onClick={c.onClick} />
+              ))}
+            </div>
             <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Days{row.dayCount === 0 ? ' — pick at least one' : ''}</div>
             <div className="noscroll flex gap-1.5 overflow-x-auto pb-1">
               {row.dayChips.map((c) => (
-                <Chip key={c.label} label={c.label} style={c.active ? { background: accent, color: 'white', border: 'none', fontWeight: 700 } : { background: 'white', color: text, border: `1.5px solid ${border}`, fontWeight: 500 }} onClick={c.onClick} />
+                <Chip key={c.label} label={c.label} style={chipStyleFor(c.active)} onClick={c.onClick} />
               ))}
             </div>
             <div className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: muted }}>Servings to make</div>
