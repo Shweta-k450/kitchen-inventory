@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { CATEGORIES, CATEGORY_MAP, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS, RECIPE_CATEGORY_PRESETS } from './constants';
+import { CATEGORIES, LOCATION_MAP, STORE_MAP, STATUS_COLORS, STATUS_LABELS, BIN_PRESETS, STORES, RECIPE_UNITS, RECIPE_CATEGORY_PRESETS } from './constants';
 import type { Item, ItemStatus, LocationId, Ingredient, Recipe, PreparedFood, Deduction } from './types';
 
 export function daysUntil(dateStr: string | null): number | null {
@@ -142,8 +142,59 @@ export interface DecoratedItem extends Item {
   sortReason: 'new' | 'restocked' | null;
 }
 
+// ---------- item categories ----------
+// Preset categories have a fixed id + colour (constants.ts). A category the user
+// types in is stored on the item as its own label; these helpers hand any category
+// string a stable label + colour so the rest of the app never has to care which
+// kind it is.
+const CATEGORY_PALETTE = ['#2488C5', '#B2DD9E', '#FFA9A5', '#AD9547', '#601A00', '#D2423A', '#2D3F35', '#EFCB84', '#F4E4D9'];
+
+export function normCategory(cat: string | null | undefined): string {
+  return (cat || '').trim().toLowerCase();
+}
+
+/** {id,label,color} for any category value — a preset (matched by id or label) or a custom one. */
+export function categoryMeta(cat: string | null | undefined): { id: string; label: string; color: string } {
+  const raw = (cat || '').trim();
+  if (!raw) return { id: '', label: 'Uncategorized', color: '#a6a496' };
+  const key = normCategory(raw);
+  const preset = CATEGORIES.find((c) => normCategory(c.id) === key || normCategory(c.label) === key);
+  if (preset) return preset;
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return { id: raw, label: titleCaseWords(raw), color: CATEGORY_PALETTE[h % CATEGORY_PALETTE.length] };
+}
+
+/** Preset categories plus any custom ones in use, deduped by normalized name (presets first, then custom A–Z). */
+export function knownItemCategories(items: Item[]): { id: string; label: string; color: string }[] {
+  const presetNorms = new Set(CATEGORIES.flatMap((c) => [normCategory(c.id), normCategory(c.label)]));
+  const custom = new Map<string, { id: string; label: string; color: string }>();
+  items.forEach((i) => {
+    const key = normCategory(i.category);
+    if (!key || presetNorms.has(key) || custom.has(key)) return;
+    custom.set(key, categoryMeta(i.category));
+  });
+  return [...CATEGORIES, ...[...custom.values()].sort((a, b) => a.label.localeCompare(b.label))];
+}
+
+/** Fold a typed category onto an existing one (preset or custom-in-use), else return the trimmed input. */
+export function canonicalItemCategory(input: string, items: Item[]): string {
+  const t = input.trim();
+  if (!t) return t;
+  const key = normCategory(t);
+  const found = knownItemCategories(items).find((c) => normCategory(c.id) === key || normCategory(c.label) === key);
+  return found ? found.id : t;
+}
+
+/** Order a set of category keys: presets in their canonical order first, then custom A–Z. */
+function orderCategoryKeys(keys: string[]): string[] {
+  const rank = new Map<string, number>(CATEGORIES.map((c, i) => [normCategory(c.id), i] as [string, number]));
+  const rankOf = (k: string) => (rank.has(normCategory(k)) ? rank.get(normCategory(k))! : 999);
+  return [...keys].sort((a, b) => rankOf(a) - rankOf(b) || categoryMeta(a).label.localeCompare(categoryMeta(b).label));
+}
+
 export function decorateItem(item: Item): DecoratedItem {
-  const cat = CATEGORY_MAP[item.category];
+  const cat = categoryMeta(item.category);
   const loc = LOCATION_MAP[item.location];
   const days = item.date ? daysUntil(item.date) : null;
   const urgency = days === null ? 'none' : days <= 2 ? 'urgent' : days <= 5 ? 'soon' : 'normal';
@@ -299,9 +350,9 @@ export function buildPantryBinCategorySections(decorated: DecoratedItem[], bin: 
   const items = decorated.filter((i) => i.location === 'pantry' && normBin(i.bin || 'Other') === target);
   const map: Record<string, DecoratedItem[]> = {};
   items.forEach((i) => { (map[i.category] = map[i.category] || []).push(i); });
-  return CATEGORIES.filter((c) => map[c.id]).map((c) => ({
-    sectionTitle: c.label,
-    rows: map[c.id].map((i) => ({
+  return orderCategoryKeys(Object.keys(map)).map((key) => ({
+    sectionTitle: categoryMeta(key).label,
+    rows: map[key].map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
       meta: [i.qtyText, i.hasDate ? i.dateText : 'No date needed'].filter(Boolean).join(' · '),
       metaColor: i.hasDate ? i.dateColor : '#7a7452',
@@ -313,12 +364,12 @@ export function buildPantryBinCategorySections(decorated: DecoratedItem[], bin: 
 
 export function buildLocationCategorySections(decorated: DecoratedItem[], locationId: LocationId, filter: string | null, openItem: (id: string) => () => void): Section[] {
   let items = decorated.filter((i) => i.location === locationId);
-  if (filter) items = items.filter((i) => i.category === filter);
+  if (filter) items = items.filter((i) => normCategory(i.category) === normCategory(filter));
   const map: Record<string, DecoratedItem[]> = {};
   items.forEach((i) => { (map[i.category] = map[i.category] || []).push(i); });
-  return CATEGORIES.filter((c) => map[c.id]).map((c) => ({
-    sectionTitle: c.label,
-    rows: map[c.id].map((i) => ({
+  return orderCategoryKeys(Object.keys(map)).map((key) => ({
+    sectionTitle: categoryMeta(key).label,
+    rows: map[key].map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
       meta: [i.qtyText, i.hasDate ? i.dateText : 'No date needed'].filter(Boolean).join(' · '),
       metaColor: i.hasDate ? i.dateColor : '#7a7452',
@@ -330,7 +381,7 @@ export function buildLocationCategorySections(decorated: DecoratedItem[], locati
 
 export function categoryChipsForLocation(decorated: DecoratedItem[], locationId: LocationId, activeFilter: string | null, setFilter: (id: string | null) => void) {
   const present = new Set(decorated.filter((i) => i.location === locationId).map((i) => i.category));
-  const cats = CATEGORIES.filter((c) => present.has(c.id));
+  const cats = orderCategoryKeys([...present]).map(categoryMeta);
   const items: { id: string | null; label: string; color: string | null }[] = [{ id: null, label: 'All', color: null }, ...cats];
   return items.map((c) => ({
     id: c.id, label: c.label,
@@ -361,18 +412,16 @@ export function buildGrocerySections(
   if (storeFilter) autoItems = autoItems.filter((i) => i.store === storeFilter);
   const map: Record<string, DecoratedItem[]> = {};
   autoItems.forEach((i) => { (map[i.category] = map[i.category] || []).push(i); });
-  CATEGORIES.forEach((c) => {
-    if (map[c.id]) {
-      sections.push({
-        sectionTitle: c.label,
-        rows: map[c.id].map((i) => ({
-          id: i.id, name: i.name, dotColor: i.catDot,
-          hasMeta: true, meta: i.fullLocationLabel,
-          hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
-          onCheck: toggleAuto(i.id),
-        })),
-      });
-    }
+  orderCategoryKeys(Object.keys(map)).forEach((key) => {
+    sections.push({
+      sectionTitle: categoryMeta(key).label,
+      rows: map[key].map((i) => ({
+        id: i.id, name: i.name, dotColor: i.catDot,
+        hasMeta: true, meta: i.fullLocationLabel,
+        hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
+        onCheck: toggleAuto(i.id),
+      })),
+    });
   });
   return sections;
 }

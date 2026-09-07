@@ -12,6 +12,7 @@ import {
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
   parseAmount, formatAmount, knownRecipeCategories, canonicalRecipeCategory, recipeCategoryCards,
+  categoryMeta, knownItemCategories, canonicalItemCategory, normCategory,
   buildMealPlanGroceryRows, mondayOf, isoDate, addDays, weekDates, weekRangeLabel, dayLabel,
   planCookEffects, servingsLeft, preparedFreshness,
   type Section, type SectionRow, type CookEffect,
@@ -244,6 +245,10 @@ export default function App() {
   const updateDraft = (p: Partial<AddDraft>) => patch({ addDraft: { ...st.addDraft, ...p } });
   const setDraftName = (e: ChangeEvent<HTMLInputElement>) => updateDraft({ name: e.target.value });
   const pickCategory = (id: string) => () => updateDraft({ category: id, dateType: (id === 'vegetables' || id === 'fruits' || id === 'herbs') ? 'consume-by' : st.addDraft.dateType });
+  const addItemCategory = (name: string) => {
+    const canon = canonicalItemCategory(name, kitchen.items);
+    if (canon) updateDraft({ category: canon });
+  };
   const pickLocation = (id: LocationId) => () => updateDraft({ location: id, bin: id === 'pantry' ? st.addDraft.bin : '' });
   const setDraftBin = (e: ChangeEvent<HTMLInputElement>) => updateDraft({ bin: e.target.value });
   const pickBin = (b: string) => () => updateDraft({ bin: b });
@@ -279,7 +284,7 @@ export default function App() {
     const quantity = d.qty.trim() && Number.isFinite(qtyNum) && qtyNum >= 0 ? qtyNum : null;
     const body: Omit<Item, 'id'> = {
       name: d.name.trim() ? d.name.trim() : 'New Item',
-      category: d.category || 'grains',
+      category: d.category ? canonicalItemCategory(d.category, kitchen.items) : 'grains',
       location: d.location || 'pantry',
       bin: (d.location || 'pantry') === 'pantry' ? canonicalBin(d.bin || 'Unsorted', kitchen.items) : '',
       store: d.store || null,
@@ -864,7 +869,11 @@ export default function App() {
 
   // ---------- add step chips ----------
   const draft = st.addDraft;
-  const categoryChips = CATEGORIES.map((c) => ({ id: c.id, label: c.label, style: chipStyle(draft.category === c.id, c.color), onClick: pickCategory(c.id) }));
+  const itemCategoryDefs = knownItemCategories(kitchen.items);
+  const categoryDefsWithDraft = draft.category && !itemCategoryDefs.some((c) => normCategory(c.id) === normCategory(draft.category))
+    ? [...itemCategoryDefs, categoryMeta(draft.category)]
+    : itemCategoryDefs;
+  const categoryChips = categoryDefsWithDraft.map((c) => ({ id: c.id, label: c.label, style: chipStyle(normCategory(draft.category) === normCategory(c.id), c.color), onClick: pickCategory(c.id) }));
   const locationChips = LOCATIONS.map((l) => ({ id: l.id, label: l.label, style: neutralChipStyle(draft.location === l.id), onClick: pickLocation(l.id) }));
   const binChipsArr = knownPantryBins(kitchen.items).map((b) => ({ label: b, style: neutralChipStyle(normBin(draft.bin) === normBin(b)), onClick: pickBin(b) }));
   const storeChipsArr = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(draft.store === s.id), onClick: pickStore(s.id) }));
@@ -1067,6 +1076,7 @@ export default function App() {
             hasPhoto={false}
             name={draft.name} onNameChange={setDraftName}
             categoryChips={categoryChips}
+            onAddCategory={addItemCategory}
             onBack={backToAdd1} onContinue={goToAdd3}
           />
         );
@@ -1737,7 +1747,7 @@ function ReceiptReviewScreen(props: {
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Items ({includedCount} of {items.length})</div>
 
         {items.map((it) => {
-          const cat = CATEGORY_MAP[it.category];
+          const cat = categoryMeta(it.category);
           const loc = LOCATION_MAP[it.location];
           const isExpanded = expandedId === it.tempId;
           return (
@@ -1791,8 +1801,10 @@ function ReceiptReviewScreen(props: {
   );
 }
 
-function Add2Screen(props: { hasPhoto: boolean; name: string; onNameChange: (e: ChangeEvent<HTMLInputElement>) => void; categoryChips: { id: string; label: string; style: CSSProperties; onClick: () => void }[]; onBack: () => void; onContinue: () => void }) {
-  const { hasPhoto, name, onNameChange, categoryChips, onBack, onContinue } = props;
+function Add2Screen(props: { hasPhoto: boolean; name: string; onNameChange: (e: ChangeEvent<HTMLInputElement>) => void; categoryChips: { id: string; label: string; style: CSSProperties; onClick: () => void }[]; onAddCategory: (name: string) => void; onBack: () => void; onContinue: () => void }) {
+  const { hasPhoto, name, onNameChange, categoryChips, onAddCategory, onBack, onContinue } = props;
+  const [newCat, setNewCat] = useState('');
+  const addCat = () => { onAddCategory(newCat); setNewCat(''); };
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
@@ -1803,6 +1815,17 @@ function Add2Screen(props: { hasPhoto: boolean; name: string; onNameChange: (e: 
         <input value={name} onChange={onNameChange} placeholder="e.g. Baby Spinach" className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Category</div>
         <div className="flex flex-wrap gap-2">{categoryChips.map((c) => <Chip key={c.id} label={c.label} style={c.style} onClick={c.onClick} />)}</div>
+        <div className="flex gap-2 mt-2.5">
+          <input
+            value={newCat}
+            onChange={(e) => setNewCat(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && newCat.trim()) addCat(); }}
+            placeholder="New category…"
+            className="flex-1 min-w-0 h-[42px] rounded-xl px-3.5 text-sm outline-none"
+            style={{ border: `1.5px solid ${border}`, background: card, color: text }}
+          />
+          <button onClick={addCat} disabled={!newCat.trim()} className="shrink-0 px-4 h-[42px] rounded-xl text-white text-[13px] font-bold disabled:opacity-50" style={{ background: accent }}>Add</button>
+        </div>
       </div>
       <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
         <button onClick={onContinue} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold" style={{ background: accent }}>Continue</button>
