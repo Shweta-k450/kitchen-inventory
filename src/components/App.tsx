@@ -10,7 +10,7 @@ import {
   decorateItem, daysUntil, itemEmoji, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
   buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
-  matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
+  matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, roughParseIngredient, resizeImageFileToDataUrl,
   parseAmount, formatAmount, knownRecipeCategories, canonicalRecipeCategory, recipeCategoryCards,
   categoryMeta, knownItemCategories, canonicalItemCategory, normCategory,
   locationMeta, canonicalLocation, guessLocationIcon,
@@ -76,6 +76,7 @@ interface UiState {
   recipeImportError: string;
   recipeParseStatus: 'idle' | 'loading' | 'error' | 'unavailable';
   recipeParseErrorText: string;
+  recipeIngPreParsed: boolean; // import already produced structured rows — skip the AI re-parse on Continue
   recipeIngredientDrafts: Ingredient[];
   expandedRecipeIngredientId: string | null;
   recipePhotoDataUrl: string;
@@ -103,7 +104,7 @@ const initialState: UiState = {
   recipeCatFilter: null, recipeCategoryDraft: '', selectedRecipeId: null, editingRecipeId: null,
   recipeNameDraft: '', recipeIngredientTextDraft: '', recipeInstructionsDraft: '',
   recipeUrlDraft: '', recipeImportStatus: 'idle', recipeImportError: '',
-  recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [], expandedRecipeIngredientId: null,
+  recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngPreParsed: false, recipeIngredientDrafts: [], expandedRecipeIngredientId: null,
   recipePhotoDataUrl: '', recipePhotoStatus: 'idle', recipeServingsDraft: '', recipeSaveStatus: 'idle',
   mealPlanWeek: '', recipeSelectMode: false, recipeSelection: [], planBatch: [], planReviewQueue: [], planEntryEditId: null,
   dismissedPlanNeeds: [], planView: 'week', cookEntryId: null,
@@ -475,7 +476,7 @@ export default function App() {
   });
   const startAddRecipe = () => patch({
     screen: 'recipeAdd1', editingRecipeId: null, recipeNameDraft: '', recipeIngredientTextDraft: '',
-    recipeInstructionsDraft: '', recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: [],
+    recipeInstructionsDraft: '', recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngPreParsed: false, recipeIngredientDrafts: [],
     recipeUrlDraft: '', recipeImportStatus: 'idle', recipeImportError: '',
     recipeCategoryDraft: st.recipeCatFilter && !st.recipeCatFilter.startsWith('__') ? st.recipeCatFilter : '',
     recipePhotoDataUrl: '', recipePhotoStatus: 'idle', recipeServingsDraft: '', recipeSaveStatus: 'idle',
@@ -497,7 +498,7 @@ export default function App() {
     if (!selectedRecipe) return;
     patch({
       screen: 'recipeAdd2', editingRecipeId: selectedRecipe.id, recipeNameDraft: selectedRecipe.name,
-      recipeInstructionsDraft: selectedRecipe.instructions || '',
+      recipeInstructionsDraft: selectedRecipe.instructions || '', recipeIngPreParsed: false,
       recipeIngredientDrafts: (selectedRecipe.ingredients || []).map((i) => ({ ...i })),
       recipePhotoDataUrl: selectedRecipe.photoDataUrl || '',
       recipeServingsDraft: selectedRecipe.servings ? String(selectedRecipe.servings) : '',
@@ -532,6 +533,11 @@ export default function App() {
       patch({ recipeImportStatus: 'error', recipeImportError: msg });
       return;
     }
+    // The AI import paths hand back ingredients already structured — keep them so
+    // "Continue" doesn't have to run them through the parser again.
+    const preParsed = Array.isArray(recipe.ingredients) && recipe.ingredients.length
+      ? recipe.ingredients.slice(0, 60).map((raw, idx) => buildIngredientRow(raw, idx))
+      : null;
     patch({
       recipeImportStatus: 'idle', recipeImportError: '',
       recipeNameDraft: recipe.name || st.recipeNameDraft,
@@ -539,10 +545,12 @@ export default function App() {
       recipeIngredientTextDraft: recipe.ingredientsText || st.recipeIngredientTextDraft,
       recipeInstructionsDraft: recipe.instructions || st.recipeInstructionsDraft,
       recipePhotoDataUrl: recipe.photoDataUrl || st.recipePhotoDataUrl,
+      recipeIngPreParsed: !!preParsed,
+      recipeIngredientDrafts: preParsed || st.recipeIngredientDrafts,
     });
   };
   const setRecipeServingsDraft = (e: ChangeEvent<HTMLInputElement>) => patch({ recipeServingsDraft: e.target.value });
-  const setRecipeIngredientTextDraft = (e: ChangeEvent<HTMLTextAreaElement>) => patch({ recipeIngredientTextDraft: e.target.value });
+  const setRecipeIngredientTextDraft = (e: ChangeEvent<HTMLTextAreaElement>) => patch({ recipeIngredientTextDraft: e.target.value, recipeIngPreParsed: false });
   const setRecipeInstructionsDraft = (e: ChangeEvent<HTMLTextAreaElement>) => patch({ recipeInstructionsDraft: e.target.value });
   const cancelRecipeAdd = () => patch({ screen: st.editingRecipeId ? 'recipeDetail' : 'recipes', recipeParseStatus: 'idle', recipeParseErrorText: '' });
 
@@ -555,20 +563,29 @@ export default function App() {
   const parseRecipeIngredients = async () => {
     const textVal = st.recipeIngredientTextDraft.trim();
     if (!textVal) return;
+    // Import already gave us structured rows and the text hasn't been edited since — use them as-is.
+    if (st.recipeIngPreParsed && st.recipeIngredientDrafts.length) {
+      patch({ screen: 'recipeAdd2', recipeParseStatus: 'idle', recipeParseErrorText: '', expandedRecipeIngredientId: null });
+      return;
+    }
     patch({ recipeParseStatus: 'loading', recipeParseErrorText: '' });
     const { items, error } = await parseIngredientsApi(textVal);
-    if (error) {
-      const copy = recipeParseErrorCopyForCode(error);
-      patch({ recipeParseStatus: copy.status, recipeParseErrorText: copy.text });
+    const rawItems = (items || []).filter((it) => it && (it.text || it.name));
+    if (!error && rawItems.length) {
+      const drafts = rawItems.slice(0, 60).map((raw, idx) => buildIngredientRow(raw, idx));
+      patch({ screen: 'recipeAdd2', recipeParseStatus: 'idle', recipeIngredientDrafts: drafts, expandedRecipeIngredientId: null });
       return;
     }
-    const rawItems = items || [];
-    if (!rawItems.length) {
-      patch({ recipeParseStatus: 'error', recipeParseErrorText: "Couldn't find any ingredients in that text — try pasting just the ingredient list." });
+    // Parser unavailable or gave nothing usable — fall back to a rough local parse
+    // rather than dead-ending. The user can fix any row on the next screen.
+    const local = textVal.split('\n').map((l) => roughParseIngredient(l)).filter((x): x is NonNullable<typeof x> => !!x);
+    if (local.length) {
+      const drafts = local.slice(0, 60).map((raw, idx) => buildIngredientRow(raw, idx));
+      patch({ screen: 'recipeAdd2', recipeParseStatus: 'idle', recipeParseErrorText: '', recipeIngredientDrafts: drafts, expandedRecipeIngredientId: null });
       return;
     }
-    const drafts = rawItems.slice(0, 40).map((raw, idx) => buildIngredientRow(raw, idx));
-    patch({ screen: 'recipeAdd2', recipeParseStatus: 'idle', recipeIngredientDrafts: drafts, expandedRecipeIngredientId: null });
+    const copy = recipeParseErrorCopyForCode(error || 'no_items');
+    patch({ recipeParseStatus: copy.status, recipeParseErrorText: copy.text });
   };
   const skipToManualIngredients = () => patch({ screen: 'recipeAdd2', recipeParseStatus: 'idle', expandedRecipeIngredientId: null });
 

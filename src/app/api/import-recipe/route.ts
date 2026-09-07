@@ -1,11 +1,58 @@
 import { NextResponse } from 'next/server';
 import { callClaudeForJson } from '@/lib/anthropicServer';
+import { CATEGORIES } from '@/lib/constants';
 
 /**
  * Best-effort recipe import from a URL. Prefers schema.org/Recipe JSON-LD
  * structured data (which most recipe sites embed); falls back to handing the
  * trimmed page text to Claude when there's nothing structured.
  */
+
+// Ask Claude for ingredients already in the app's structured shape, so the recipe
+// flow can use them straight away instead of re-parsing the text (which is where
+// long lists used to fail).
+const CAT_IDS = CATEGORIES.map((c) => c.id).join(', ');
+const RECIPE_UNITS_SET = new Set(['g', 'kg', 'mL', 'L', 'tsp', 'tbsp', 'cup', 'oz', 'lb', 'clove', 'slice', 'pinch', 'pack', 'count']);
+const CAT_ID_SET = new Set(CATEGORIES.map((c) => c.id));
+
+const STRUCTURED_INGREDIENTS_SPEC =
+  '"ingredients": an array of objects, one per real ingredient — skip section headings like "For the masala:" — each object being ' +
+  '{"text": the ingredient written as on a recipe card (e.g. "2 cups chopped onion"), ' +
+  '"name": a short lowercase singular core name with quantity/unit/prep words removed (e.g. "onion"), ' +
+  '"quantity": the amount and size as written, or null, ' +
+  '"amount": the numeric quantity as a decimal, converting fractions (1/4 -> 0.25, 1 1/2 -> 1.5), or null if the line has no number, ' +
+  '"unit": exactly one of g, kg, mL, L, tsp, tbsp, cup, oz, lb, clove, slice, pinch, pack, count — matching how it is measured (use "count" for whole items like "2 eggs"), or null when there is no amount, ' +
+  '"category": exactly one of these ids — ' + CAT_IDS + ' — whichever fits best, or null, ' +
+  '"trackable": false ONLY for plain water or ice, true for everything else}';
+
+type IngRow = { text: string; name: string; quantity: string | null; amount: number | null; unit: string | null; category: string | null; trackable: boolean };
+
+function normalizeIngredients(raw: unknown): IngRow[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const out: IngRow[] = [];
+  for (const it of arr) {
+    if (typeof it === 'string') {
+      const t = it.trim();
+      if (t) out.push({ text: t, name: t.toLowerCase(), quantity: null, amount: null, unit: null, category: null, trackable: true });
+      continue;
+    }
+    if (!it || typeof it !== 'object') continue;
+    const o = it as Record<string, unknown>;
+    const text = typeof o.text === 'string' && o.text.trim() ? o.text.trim() : (typeof o.name === 'string' ? o.name.trim() : '');
+    if (!text) continue;
+    const amount = typeof o.amount === 'number' && Number.isFinite(o.amount) && o.amount > 0 ? o.amount : null;
+    out.push({
+      text,
+      name: typeof o.name === 'string' && o.name.trim() ? o.name.trim().toLowerCase() : text.toLowerCase(),
+      quantity: typeof o.quantity === 'string' && o.quantity.trim() ? o.quantity.trim() : null,
+      amount,
+      unit: amount != null && typeof o.unit === 'string' && RECIPE_UNITS_SET.has(o.unit) ? o.unit : null,
+      category: typeof o.category === 'string' && CAT_ID_SET.has(o.category) ? o.category : null,
+      trackable: o.trackable === false ? false : true,
+    });
+  }
+  return out;
+}
 
 function isSafeUrl(raw: string): URL | null {
   let u: URL;
@@ -262,15 +309,14 @@ async function importFromYouTube(id: string, url: URL) {
   const prompt =
     'The text below is the title, description and (sometimes) an auto-generated transcript of a cooking video. ' +
     'Reconstruct the recipe as JSON: {"name": recipe title as a string, "servings": number of servings as an integer or null, ' +
-    '"ingredients": array of ingredient line strings including quantities where stated (e.g. "2 cups flour") — prefer an explicit ' +
-    'ingredient list in the description over inferring amounts from the transcript, ' +
+    STRUCTURED_INGREDIENTS_SPEC + ' — prefer amounts written in the description over inferring them from the transcript, ' +
     '"instructions": the method as one string with numbered steps separated by newlines}. ' +
     'Ignore sponsor reads, "like and subscribe", links and off-topic chatter. ' +
     'If there is no recipe here, reply {"name": null}. Reply with ONLY the JSON object.\n\n' + material;
 
   let result: unknown;
   try {
-    result = await callClaudeForJson({ prompt, maxTokens: 3072 });
+    result = await callClaudeForJson({ prompt, maxTokens: 4096 });
   } catch (err) {
     const code = (err as { code?: string })?.code || 'upstream_error';
     return NextResponse.json({ error: code }, { status: code === 'not_configured' ? 501 : 502 });
@@ -278,14 +324,15 @@ async function importFromYouTube(id: string, url: URL) {
 
   const r = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
   const name = typeof r.name === 'string' ? r.name.trim() : '';
-  const ingredients = Array.isArray(r.ingredients) ? (r.ingredients as unknown[]).map((x) => String(x).trim()).filter(Boolean) : [];
+  const ingredients = normalizeIngredients(r.ingredients);
   if (!name || !ingredients.length) return NextResponse.json({ error: 'no_recipe' }, { status: 422 });
 
   return NextResponse.json({
     recipe: {
       name,
       servings: typeof r.servings === 'number' && r.servings > 0 ? Math.round(r.servings) : null,
-      ingredientsText: ingredients.join('\n'),
+      ingredientsText: ingredients.map((i) => i.text).join('\n'),
+      ingredients,
       instructions: typeof r.instructions === 'string' ? r.instructions : '',
       photoDataUrl: ctx.thumbnailUrl ? await fetchImage(ctx.thumbnailUrl, url) : null,
       source: 'ai',
@@ -331,6 +378,7 @@ export async function POST(request: Request) {
           name,
           servings: yieldToNumber(ld.recipeYield),
           ingredientsText: ingredients.join('\n'),
+          ingredients: null,
           instructions: instructionsToText(ld.recipeInstructions),
           photoDataUrl: src ? await fetchImage(src, url) : null,
           source: 'structured',
@@ -347,23 +395,24 @@ export async function POST(request: Request) {
   const prompt =
     'The following is text scraped from a web page that may contain a recipe. Extract the recipe as JSON: ' +
     '{"name": the recipe title (string), "servings": number of servings as an integer, or null, ' +
-    '"ingredients": array of ingredient line strings exactly as written on the page, ' +
+    STRUCTURED_INGREDIENTS_SPEC + ', ' +
     '"instructions": the method as one string with numbered steps separated by newlines, or ""}. ' +
     'If the page is not a recipe, reply {"name": null}. Reply with ONLY the JSON object.\n\n' +
     (titleMatch ? 'Page title: ' + decodeEntities(titleMatch[1]) + '\n\n' : '') + pageText;
 
   try {
-    const result = await callClaudeForJson({ prompt });
+    const result = await callClaudeForJson({ prompt, maxTokens: 4096 });
     const r = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
     const name = typeof r.name === 'string' ? r.name.trim() : '';
-    const ingredients = Array.isArray(r.ingredients) ? (r.ingredients as unknown[]).map((x) => String(x).trim()).filter(Boolean) : [];
+    const ingredients = normalizeIngredients(r.ingredients);
     if (!name || !ingredients.length) return NextResponse.json({ error: 'no_recipe' }, { status: 422 });
     const src = ogImage(html);
     return NextResponse.json({
       recipe: {
         name,
         servings: typeof r.servings === 'number' && r.servings > 0 ? Math.round(r.servings) : null,
-        ingredientsText: ingredients.join('\n'),
+        ingredientsText: ingredients.map((i) => i.text).join('\n'),
+        ingredients,
         instructions: typeof r.instructions === 'string' ? r.instructions : '',
         photoDataUrl: src ? await fetchImage(src, url) : null,
         source: 'ai',

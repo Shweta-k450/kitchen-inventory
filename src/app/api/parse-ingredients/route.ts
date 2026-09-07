@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     'Reply with ONLY a JSON array of these objects, in the original order.\n\nIngredients:\n' + text;
 
   try {
-    const result = await callClaudeForJson({ prompt });
+    const result = await callClaudeForJson({ prompt, maxTokens: 8192 });
     const items = Array.isArray(result) ? result : [];
     return NextResponse.json({ items });
   } catch (err) {

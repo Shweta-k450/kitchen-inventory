@@ -600,6 +600,44 @@ export function buildIngredientRow(raw: Partial<Ingredient> & { text?: string },
   };
 }
 
+const ROUGH_UNITS: Record<string, string> = {
+  g: 'g', gram: 'g', grams: 'g', gm: 'g', gms: 'g', kg: 'kg', kgs: 'kg', ml: 'mL', mls: 'mL', l: 'L', litre: 'L', liter: 'L', litres: 'L', liters: 'L',
+  tsp: 'tsp', teaspoon: 'tsp', teaspoons: 'tsp', tbsp: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp',
+  cup: 'cup', cups: 'cup', oz: 'oz', ounce: 'oz', ounces: 'oz', lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+  clove: 'clove', cloves: 'clove', slice: 'slice', slices: 'slice', pinch: 'pinch', pinches: 'pinch',
+  pack: 'pack', packet: 'pack', packets: 'pack', can: 'pack', cans: 'pack', tin: 'pack', tins: 'pack',
+};
+const PREP_WORDS = /\b(chopped|diced|minced|sliced|grated|shredded|crushed|ground|fresh|dried|frozen|large|medium|small|ripe|boneless|skinless|finely|roughly|thinly|halved|quartered|peeled|deseeded|cubed|beaten|softened|melted|packed|heaped|level|plus more|to taste|for garnish|optional)\b/gi;
+
+/** Best-effort local parse of one raw ingredient line — the fallback when the AI parser is unavailable. */
+export function roughParseIngredient(line: string): (Partial<Ingredient> & { text: string }) | null {
+  const t = (line || '').trim().replace(/^[-*•·•]\s*/, '').replace(/\s+/g, ' ');
+  if (!t) return null;
+  if (/:\s*$/.test(t) || /^(for\b|method\b|instructions?\b|directions?\b|steps?\b|notes?\b)/i.test(t)) return null;
+  const m = t.match(/^(\d+(?:\s+\d+\/\d+|\.\d+|\/\d+)?|[½¼¾⅓⅔⅕⅛])\s*([a-zA-Z.]+)?\s*(.*)$/);
+  let amount: number | null = null;
+  let unit: string | null = null;
+  let rest = t;
+  if (m) {
+    amount = parseAmount(m[1]);
+    const u = (m[2] || '').toLowerCase().replace(/\./g, '');
+    if (u && ROUGH_UNITS[u]) { unit = ROUGH_UNITS[u]; rest = m[3] || ''; }
+    else if (amount != null) { unit = 'count'; rest = [m[2], m[3]].filter(Boolean).join(' '); }
+  }
+  let name = ((rest.split(/,| - | – | \(/)[0]) || rest).toLowerCase().replace(PREP_WORDS, '').replace(/\s+/g, ' ').trim();
+  if (!name) name = rest.toLowerCase().trim() || t.toLowerCase();
+  return {
+    text: t,
+    name,
+    quantity: m ? [m[1], unit && unit !== 'count' ? unit : (m[2] || '')].filter(Boolean).join(' ').trim() : '',
+    amount,
+    amountText: amount != null ? m![1] : null,
+    unit,
+    category: null,
+    trackable: /\b(water|ice)\b/i.test(name) ? false : true,
+  };
+}
+
 // ---------- units & meal-plan shopping ----------
 const MASS_G: Record<string, number> = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
 const VOL_ML: Record<string, number> = { mL: 1, L: 1000, tsp: 4.92892, tbsp: 14.7868, cup: 236.588 };

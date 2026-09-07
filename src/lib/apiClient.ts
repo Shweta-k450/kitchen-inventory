@@ -13,6 +13,8 @@ export interface ImportedRecipe {
   name: string;
   servings: number | null;
   ingredientsText: string;
+  /** Pre-structured ingredient rows when the importer could build them (AI paths); null otherwise. */
+  ingredients: Partial<Ingredient>[] | null;
   instructions: string;
   photoDataUrl: string | null;
   source: 'structured' | 'ai';
