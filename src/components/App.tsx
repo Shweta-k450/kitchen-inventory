@@ -1623,6 +1623,37 @@ function EditableTitle({ value, onSave, textClass, textStyle }: {
   );
 }
 
+// A little pressure cooker whistling off steam — our "working on it" animation.
+function CookerLoader() {
+  return (
+    <svg width="78" height="78" viewBox="0 0 64 64" fill="none" aria-hidden>
+      <g fill="#b7a89a">
+        <ellipse className="ck-steam" cx="29" cy="13" rx="3" ry="4.2" />
+        <ellipse className="ck-steam" style={{ animationDelay: '0.5s' }} cx="35" cy="13" rx="2.4" ry="3.4" />
+        <ellipse className="ck-steam" style={{ animationDelay: '1s' }} cx="32" cy="12" rx="2" ry="3" />
+      </g>
+      <g className="ck-shake">
+        <rect className="ck-rattle" x="29" y="15" width="6" height="8" rx="2" fill={accent} />
+        <rect x="10.5" y="21" width="43" height="7.5" rx="3.75" fill="#f7e3e5" stroke={accent} strokeWidth="2.4" />
+        <path d="M15 28.5 h34 v14 a6 6 0 0 1 -6 6 h-22 a6 6 0 0 1 -6 -6 z" fill="#f7e3e5" stroke={accent} strokeWidth="2.4" strokeLinejoin="round" />
+        <path d="M10.5 32 q-4.5 0 -4.5 4.5 M53.5 32 q4.5 0 4.5 4.5" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
+function LoadingOverlay({ label }: { label: string }) {
+  return (
+    <div
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3.5 px-8 text-center"
+      style={{ background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
+    >
+      <CookerLoader />
+      <div className="text-[13.5px] font-semibold" style={{ color: muted }}>{label}</div>
+    </div>
+  );
+}
+
 function LocationScreen(props: { label: string; count: number; showFilters: boolean; filterChips: { id: string | null; label: string; style: CSSProperties; onClick: () => void }[]; sections: Section[]; onBack: () => void; onRename?: (v: string) => void }) {
   const { label, count, showFilters, filterChips, sections, onBack, onRename } = props;
   return (
@@ -2435,7 +2466,6 @@ function RecipeAdd1Screen(props: {
             {importLoading ? '…' : 'Fetch'}
           </button>
         </div>
-        {importLoading && <div className="mt-2 text-[13px] font-semibold" style={{ color: muted }}>{/youtu\.?be/i.test(url) ? 'Reading the video description & captions…' : 'Reading that page…'}</div>}
         {importError && <div className="mt-2 p-3 rounded-xl text-[13px] font-semibold" style={{ background: card, border: `1.5px solid ${border}`, color: errorColor }}>{importError}</div>}
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Recipe name</div>
@@ -2451,7 +2481,6 @@ function RecipeAdd1Screen(props: {
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Instructions (optional)</div>
         <textarea value={instructions} onChange={onInstructionsChange} placeholder="Paste or type the steps…" className="w-full h-[100px] rounded-xl p-3.5 text-sm outline-none resize-none" style={{ border: `1.5px solid ${border}`, background: card, color: text, fontFamily: 'inherit' }} />
 
-        {parseLoading && <div className="mt-4 text-center text-[13.5px] font-semibold" style={{ color: muted }}>Sorting your ingredients…</div>}
         {parseProblem && <div className="mt-4 p-3.5 rounded-xl text-[13px] font-semibold" style={{ background: card, border: `1.5px solid ${border}`, color: errorColor }}>{parseErrorText}</div>}
 
         <div onClick={onSkipManual} className="mt-4 text-center text-[13.5px] font-semibold cursor-pointer" style={{ color: accent }}>Add ingredients one at a time instead</div>
@@ -2459,6 +2488,13 @@ function RecipeAdd1Screen(props: {
       <div className="shrink-0 px-5 pt-3.5 pb-5.5" style={{ borderTop: `1px solid ${border}` }}>
         <button onClick={onContinue} className="w-full h-12 rounded-2xl text-white text-[15px] font-bold" style={{ background: accent }}>Continue</button>
       </div>
+      {(importLoading || parseLoading) && (
+        <LoadingOverlay label={
+          parseLoading ? 'Sorting your ingredients…'
+            : /youtu\.?be/i.test(url) ? 'Reading the video description & captions…'
+            : 'Reading that page…'
+        } />
+      )}
     </div>
   );
 }

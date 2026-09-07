@@ -58,3 +58,25 @@ button {
 
 @keyframes pi-spin { to { transform: rotate(360deg); } }
 .pi-spin { animation: pi-spin 0.8s linear infinite; transform-origin: center; }
+
+/* "pressure cooker going off" loader */
+@keyframes ck-steam {
+  0%   { transform: translateY(2px) scale(0.45); opacity: 0; }
+  22%  { opacity: 0.8; }
+  100% { transform: translateY(-22px) scale(1.5); opacity: 0; }
+}
+@keyframes ck-rattle {
+  0%, 100% { transform: rotate(-11deg); }
+  50%      { transform: rotate(11deg); }
+}
+@keyframes ck-shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25%      { transform: translateX(-0.9px) rotate(-0.8deg); }
+  75%      { transform: translateX(0.9px) rotate(0.8deg); }
+}
+.ck-steam  { transform-box: fill-box; transform-origin: center bottom; animation: ck-steam 1.5s ease-out infinite; }
+.ck-rattle { transform-box: fill-box; transform-origin: center bottom; animation: ck-rattle 0.24s ease-in-out infinite; }
+.ck-shake  { transform-box: fill-box; transform-origin: center; animation: ck-shake 0.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .ck-steam, .ck-rattle, .ck-shake { animation-duration: 2.4s; }
+}
