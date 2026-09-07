@@ -7,7 +7,7 @@ import {
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
 } from '@/lib/constants';
 import {
-  decorateItem, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
+  decorateItem, daysUntil, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
   buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
   buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, resizeImageFileToDataUrl,
@@ -25,7 +25,7 @@ import PullToRefresh from './PullToRefresh';
 import SwipeBack from './SwipeBack';
 
 type Screen =
-  | 'home' | 'location' | 'pantryBin' | 'sortBucket' | 'itemDetail' | 'add1' | 'add2' | 'add3'
+  | 'home' | 'location' | 'pantryBin' | 'sortBucket' | 'expiring' | 'itemDetail' | 'add1' | 'add2' | 'add3'
   | 'receiptScan' | 'receiptReview' | 'grocery' | 'search'
   | 'recipes' | 'recipeDetail' | 'recipeAdd1' | 'recipeAdd2' | 'recipeAdd3'
   | 'plan' | 'planAdd' | 'planReview' | 'cookConfirm';
@@ -154,6 +154,7 @@ export default function App() {
   const openPantryBin = (bin: string | null) => () => patch({ screen: 'pantryBin', selectedLocationId: 'pantry', selectedPantryBin: bin });
   const backToPantry = () => patch({ screen: 'location', selectedLocationId: 'pantry', selectedPantryBin: null });
   const openToSort = () => patch({ screen: 'sortBucket' });
+  const openExpiring = () => patch({ screen: 'expiring' });
   const openItem = (returnTo: Screen) => (id: string) => () => patch({ screen: 'itemDetail', selectedItemId: id, itemDetailReturnTo: returnTo });
   const backToHome = () => patch({ screen: 'home' });
   const closeItemDetail = () => patch({ screen: st.itemDetailReturnTo });
@@ -843,6 +844,30 @@ export default function App() {
   const restockCount = placedDecorated.filter((i) => i.needsRestock).length + kitchen.groceryExtras.length;
   const expiringSoonCount = placedDecorated.filter((i) => i.soonOrUrgent).length;
 
+  // ---------- expiring-soon screen ----------
+  const expiringSections: Section[] = (() => {
+    const buckets: { title: string; rows: SectionRow[] }[] = [
+      { title: 'Expired', rows: [] },
+      { title: 'Next 2 days', rows: [] },
+      { title: 'Later this week', rows: [] },
+    ];
+    placedDecorated
+      .filter((i) => i.soonOrUrgent && i.hasDate)
+      .slice()
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+      .forEach((i) => {
+        const d = daysUntil(i.date) ?? 0;
+        const row: SectionRow = {
+          id: i.id, name: i.name, dotColor: i.catDot,
+          meta: [i.fullLocationLabel, i.dateText].filter(Boolean).join(' · '),
+          metaColor: muted, hasBadge: false, badgeText: '', badgeStyle: null,
+          onOpen: openItem('expiring')(i.id),
+        };
+        (d < 0 ? buckets[0] : d <= 2 ? buckets[1] : buckets[2]).rows.push(row);
+      });
+    return buckets.filter((b) => b.rows.length).map((b) => ({ sectionTitle: b.title, rows: b.rows }));
+  })();
+
   // ---------- location screen ----------
   const currentLocationId = st.selectedLocationId || 'pantry';
   const currentLocationIsPantry = currentLocationId === 'pantry';
@@ -930,7 +955,7 @@ export default function App() {
   const unitChipsArr = UNITS.map((u) => ({ label: u, style: neutralChipStyle(draft.unit === u), onClick: pickUnit(u) }));
   const receiptStoreChips = STORES.map((s) => ({ id: s.id, label: s.label, style: neutralChipStyle(st.receiptStore === s.id), onClick: () => patch({ receiptStore: s.id }) }));
 
-  const NAV_SCREENS: Screen[] = ['home', 'grocery', 'recipes', 'plan', 'location', 'pantryBin', 'sortBucket', 'itemDetail'];
+  const NAV_SCREENS: Screen[] = ['home', 'grocery', 'recipes', 'plan', 'location', 'pantryBin', 'sortBucket', 'expiring', 'itemDetail'];
   const showNav = NAV_SCREENS.includes(st.screen);
   const receiptIncludedCount = st.receiptDraftItems.filter((i) => i.include).length;
 
@@ -940,6 +965,7 @@ export default function App() {
     location: backToHome,
     pantryBin: backToPantry,
     sortBucket: backToHome,
+    expiring: backToHome,
     itemDetail: closeItemDetail,
     add1: cancelAdd,
     receiptScan: backToAdd1FromReceipt,
@@ -960,6 +986,7 @@ export default function App() {
     location: 'home',
     pantryBin: 'location',
     sortBucket: 'home',
+    expiring: 'home',
     itemDetail: st.itemDetailReturnTo,
     add1: st.addReturnScreen,
     receiptScan: 'add1',
@@ -1010,10 +1037,22 @@ export default function App() {
             restockCount={restockCount}
             expiringSoonCount={expiringSoonCount}
             goGrocery={goGrocery}
+            onExpiring={openExpiring}
             onSearch={openSearch}
             locationCards={homeLocationCards}
             onAddLocation={addStorageLocation}
             toSortCount={toSortItems.length} onOpenToSort={openToSort}
+          />
+        );
+      case 'expiring':
+        return (
+          <LocationScreen
+            label="Expiring Soon"
+            count={expiringSections.reduce((n, sec) => n + sec.rows.length, 0)}
+            showFilters={false}
+            filterChips={[]}
+            sections={expiringSections}
+            onBack={backToHome}
           />
         );
       case 'sortBucket':
@@ -1392,12 +1431,12 @@ export default function App() {
 // ============================================================
 
 function HomeScreen(props: {
-  totalItems: number; locationCount: number; dbStatus: string; restockCount: number; expiringSoonCount: number; goGrocery: () => void; onSearch: () => void;
+  totalItems: number; locationCount: number; dbStatus: string; restockCount: number; expiringSoonCount: number; goGrocery: () => void; onExpiring: () => void; onSearch: () => void;
   locationCards: { id: string; label: string; color: string; icon: 'box' | 'fridge' | 'snow'; count: number; alerts: number; onOpen: () => void }[];
   onAddLocation: (name: string) => void;
   toSortCount: number; onOpenToSort: () => void;
 }) {
-  const { totalItems, locationCount, dbStatus, restockCount, expiringSoonCount, goGrocery, onSearch, locationCards, onAddLocation, toSortCount, onOpenToSort } = props;
+  const { totalItems, locationCount, dbStatus, restockCount, expiringSoonCount, goGrocery, onExpiring, onSearch, locationCards, onAddLocation, toSortCount, onOpenToSort } = props;
   const showSyncBanner = dbStatus === 'unavailable' || dbStatus === 'error';
   const [locOpen, setLocOpen] = useState(false);
   const [newLoc, setNewLoc] = useState('');
@@ -1430,7 +1469,7 @@ function HomeScreen(props: {
             </div>
           )}
           {expiringSoonCount > 0 && (
-            <div className="flex-1 rounded-2xl p-4" style={{ background: card, border: `1.5px solid ${border}` }}>
+            <div onClick={onExpiring} className="flex-1 rounded-2xl p-4 cursor-pointer" style={{ background: card, border: `1.5px solid ${border}` }}>
               <div className="text-[22px] font-extrabold" style={{ color: errorColor }}>{expiringSoonCount}</div>
               <div className="text-[12.5px] mt-0.5" style={{ color: muted }}>expiring soon</div>
             </div>
