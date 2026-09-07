@@ -2742,11 +2742,11 @@ function PlanScreen(props: {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
               </button>
             </div>
-            <div onClick={onToggleShop} className="flex items-center justify-between mt-3 px-3.5 py-2.5 rounded-xl cursor-pointer" style={{ background: shopWeekActive ? accent : card, border: `1.5px solid ${shopWeekActive ? accent : border}` }}>
-              <div className="text-[13.5px] font-bold" style={{ color: shopWeekActive ? 'white' : text }}>Shop for this week</div>
-              <div className="w-10 h-6 rounded-full flex items-center px-0.5" style={{ background: shopWeekActive ? 'rgba(255,255,255,0.35)' : '#d8d2c2' }}>
-                <div className="w-5 h-5 rounded-full bg-white" style={{ transform: shopWeekActive ? 'translateX(16px)' : 'translateX(0)', transition: 'transform 150ms ease' }} />
+            <div onClick={onToggleShop} className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+              <div className="w-[30px] h-[17px] rounded-full flex items-center px-[2px] shrink-0" style={{ background: shopWeekActive ? accent : '#d8d2c2', transition: 'background 150ms ease' }}>
+                <div className="w-[13px] h-[13px] rounded-full bg-white" style={{ transform: shopWeekActive ? 'translateX(13px)' : 'translateX(0)', transition: 'transform 150ms ease' }} />
               </div>
+              <div className="text-[12.5px] font-semibold" style={{ color: shopWeekActive ? accent : muted }}>Shop for this week</div>
             </div>
           </>
         )}
