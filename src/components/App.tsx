@@ -2322,9 +2322,16 @@ function RecipeDetailScreen(props: {
           </>
         )}
 
-        <div className="flex gap-2.5 mt-7">
-          <div onClick={onEdit} className="flex-1 text-center p-3 rounded-2xl text-[13.5px] font-bold cursor-pointer" style={{ background: card, border: `1.5px solid ${border}`, color: text }}>Edit Recipe</div>
-          <div onClick={onDelete} className="flex-1 text-center p-3 rounded-2xl text-[13.5px] font-bold cursor-pointer" style={{ background: card, border: `1.5px solid ${border}`, color: errorColor }}>Delete</div>
+        <div onClick={onEdit} className="text-center p-3 rounded-2xl text-[13.5px] font-bold cursor-pointer mt-7" style={{ background: card, border: `1.5px solid ${border}`, color: text }}>Edit Recipe</div>
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={onDelete}
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-[13.5px] font-bold text-white"
+            style={{ background: errorColor, boxShadow: `0 2px 10px ${hexToRgba(errorColor, 0.35)}` }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" /></svg>
+            Delete Recipe
+          </button>
         </div>
       </div>
     </div>
