@@ -1426,7 +1426,7 @@ export default function App() {
     <div className="min-h-dvh flex flex-col bg-white" style={{ color: text }}>
       <div className="flex-1 min-h-0 relative">
         {kitchen.status === 'connecting' ? (
-          <LoadingOverlay solid icon="fridge" label="Loading your kitchen…" />
+          <LoadingOverlay solid icon="fridge" title="Kit'in" label="Loading your kitchen…" />
         ) : (
           <SwipeBack
             enabled={swipeBackHandler !== null}
@@ -1688,14 +1688,15 @@ function BookSearchLoader() {
   );
 }
 
-function LoadingOverlay({ label, solid, icon }: { label: string; solid?: boolean; icon?: 'cooker' | 'fridge' | 'book' }) {
+function LoadingOverlay({ label, title, solid, icon }: { label: string; title?: string; solid?: boolean; icon?: 'cooker' | 'fridge' | 'book' }) {
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3.5 px-8 text-center"
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 px-8 text-center"
       style={solid ? { background: '#fff' } : { background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
     >
       {icon === 'fridge' ? <FridgeLoader /> : icon === 'book' ? <BookSearchLoader /> : <CookerLoader />}
-      <div className="text-[13.5px] font-semibold" style={{ color: muted }}>{label}</div>
+      {title && <div className="text-[22px] font-extrabold mt-1.5 tracking-tight" style={{ color: accent }}>{title}</div>}
+      <div className="text-[13px] font-semibold" style={{ color: muted }}>{label}</div>
     </div>
   );
 }
