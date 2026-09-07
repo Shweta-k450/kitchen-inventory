@@ -2305,6 +2305,9 @@ function RecipesScreen(props: {
   filteredEmpty: boolean; onAdd: () => void;
 }) {
   const { title, onBack, recipes, selectMode, selectionCount, onToggleSelectMode, onAddSelectedToPlan, filteredEmpty, onAdd } = props;
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = q ? recipes.filter((r) => r.name.toLowerCase().includes(q)) : recipes;
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-5 pb-3 shrink-0">
@@ -2325,10 +2328,22 @@ function RecipesScreen(props: {
             Add Recipe
           </button>
         )}
+        {!filteredEmpty && (
+          <div className="flex items-center gap-2 mt-3 h-[42px] rounded-xl px-3.5" style={{ border: `1.5px solid ${border}`, background: card }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search recipes…" className="flex-1 min-w-0 bg-transparent text-sm outline-none" style={{ color: text }} />
+            {query && (
+              <div onClick={() => setQuery('')} className="shrink-0 cursor-pointer" aria-label="Clear search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-[100px]">
         {filteredEmpty && <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>No recipes here yet.</div>}
-        {recipes.map((r) => (
+        {!filteredEmpty && q && shown.length === 0 && <div className="text-center py-16 px-5 text-sm" style={{ color: muted }}>No recipes match &ldquo;{query.trim()}&rdquo;.</div>}
+        {shown.map((r) => (
           <div
             key={r.id}
             onClick={selectMode ? r.onToggleSelect : r.onOpen}
