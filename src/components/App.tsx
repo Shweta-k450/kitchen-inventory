@@ -10,7 +10,7 @@ import {
 import {
   decorateItem, daysUntil, itemEmoji, buildPantrySections, buildLocationCategorySections, categoryChipsForLocation,
   buildPantryBinSummaries, buildPantryBinCategorySections, normBin, knownPantryBins, canonicalBin, dedupeBins, parseQtyString,
-  buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, hexToRgba, onColor, onColorMuted,
+  buildGrocerySections, storeChipsForGrocery, chipStyle, neutralChipStyle, tileBg, hexToRgba,
   matchIngredient, recipeReadiness, titleCaseWords, buildIngredientRow, roughParseIngredient, resizeImageFileToDataUrl,
   parseAmount, formatAmount, knownRecipeCategories, canonicalRecipeCategory, recipeCategoryCards,
   categoryMeta, knownItemCategories, canonicalItemCategory, normCategory,
@@ -1567,9 +1567,9 @@ function HomeScreen(props: {
       )}
       <div className="grid grid-cols-2 gap-3">
         {locationCards.map((c) => {
-          const fg = onColor(c.color);
+          const fg = 'var(--color-text)';
           return (
-            <div key={c.id} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: c.color, border: '1px solid var(--color-hairline)' }}>
+            <div key={c.id} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: tileBg(c.color), border: '1px solid var(--color-hairline)' }}>
               {c.alerts > 0 && (
                 <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: page, color: errorColor }}>
                   {c.alerts}
@@ -1577,7 +1577,7 @@ function HomeScreen(props: {
               )}
               <StorageIcon kind={c.icon} color={fg} />
               <div className="text-[15px] font-bold mt-2.5" style={{ color: fg }}>{c.label}</div>
-              <div className="text-[12.5px] mt-0.5" style={{ color: onColorMuted(c.color) }}>{c.count} item{c.count === 1 ? '' : 's'}</div>
+              <div className="text-[12.5px] mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{c.count} item{c.count === 1 ? '' : 's'}</div>
             </div>
           );
         })}
@@ -1598,10 +1598,10 @@ function StorageIcon({ kind, color = accent }: { kind: 'box' | 'fridge' | 'snow'
 
 function RowCard({ row }: { row: { id: string; name: string; dotColor: string; meta?: string; metaColor?: string; hasBadge: boolean; badgeText: string; badgeStyle: { background: string; color: string } | null; onOpen?: () => void } }) {
   const bg = row.dotColor;
-  const fg = onColor(bg);
-  const fgMuted = onColorMuted(bg);
+  const fg = 'var(--color-text)';
+  const fgMuted = 'var(--color-text-muted)';
   return (
-    <div onClick={row.onOpen} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2 cursor-pointer" style={{ background: bg, border: '1px solid var(--color-hairline)' }}>
+    <div onClick={row.onOpen} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2 cursor-pointer" style={{ background: tileBg(bg), border: '1px solid var(--color-hairline)' }}>
       <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-[19px] leading-none" style={{ background: 'rgba(255,255,255,0.55)' }}>
         <span aria-hidden>{itemEmoji(row.name)}</span>
       </div>
@@ -1755,8 +1755,8 @@ function PantryBinsScreen(props: {
 }) {
   const { label, count, cards, onBack, onRename } = props;
   const binColor = LOCATION_MAP['pantry'].color;
-  const fg = onColor(binColor);
-  const fgMuted = onColorMuted(binColor);
+  const fg = 'var(--color-text)';
+  const fgMuted = 'var(--color-text-muted)';
   return (
     <div className="absolute inset-0 flex flex-col">
       <div className="px-5 pt-5 pb-3 shrink-0">
@@ -1769,7 +1769,7 @@ function PantryBinsScreen(props: {
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-24">
         <div className="grid grid-cols-2 gap-3">
           {cards.map((c) => (
-            <div key={c.key} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: binColor, border: '1px solid var(--color-hairline)' }}>
+            <div key={c.key} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: tileBg(binColor), border: '1px solid var(--color-hairline)' }}>
               {c.alerts > 0 && (
                 <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: page, color: errorColor }}>
                   {c.alerts}
@@ -1858,8 +1858,8 @@ function ItemDetailScreen(props: {
           </div>
         )}
         <div className="flex flex-wrap gap-2 mt-2.5">
-          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.catColor, color: onColor(item.catColor), border: '1px solid var(--color-hairline)' }}>{item.catLabel}</div>
-          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.locColor, color: onColor(item.locColor), border: '1px solid var(--color-hairline)' }}>{item.fullLocationLabel}</div>
+          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: tileBg(item.catColor), color: 'var(--color-text)', border: '1px solid var(--color-hairline)' }}>{item.catLabel}</div>
+          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: tileBg(item.locColor), color: 'var(--color-text)', border: '1px solid var(--color-hairline)' }}>{item.fullLocationLabel}</div>
           {item.hasQty && <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: section, color: text }}>{item.qtyText}</div>}
           {item.hasStore && <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: section, color: text }}>{item.storeLabel}</div>}
         </div>
@@ -2271,10 +2271,10 @@ function GroceryScreen(props: {
             <div className="text-[12.5px] font-bold uppercase tracking-wide my-3.5" style={{ color: muted }}>{sec.sectionTitle}</div>
             {sec.rows.map((row) => {
               const bg = row.dotColor;
-              const fg = onColor(bg);
-              const fgMuted = onColorMuted(bg);
+              const fg = 'var(--color-text)';
+              const fgMuted = 'var(--color-text-muted)';
               return (
-                <div key={row.id} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2" style={{ background: bg, border: '1px solid var(--color-hairline)' }}>
+                <div key={row.id} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2" style={{ background: tileBg(bg), border: '1px solid var(--color-hairline)' }}>
                   <div onClick={row.onCheck} className="shrink-0 w-6 h-6 rounded-full cursor-pointer" style={{ border: `2px solid ${fgMuted}` }} />
                   <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-[19px] leading-none" style={{ background: 'rgba(255,255,255,0.55)' }}>
                     <span aria-hidden>{itemEmoji(row.name)}</span>
@@ -2605,10 +2605,10 @@ function RecipeAdd2Screen(props: {
 
         {rows.map((row) => {
           const bg = row.catDot;
-          const fg = onColor(bg);
-          const fgMuted = onColorMuted(bg);
+          const fg = 'var(--color-text)';
+          const fgMuted = 'var(--color-text-muted)';
           return (
-            <div key={row.ingId} className="rounded-2xl p-3.5 mt-3" style={{ background: bg, border: '1px solid var(--color-hairline)' }}>
+            <div key={row.ingId} className="rounded-2xl p-3.5 mt-3" style={{ background: tileBg(bg), border: '1px solid var(--color-hairline)' }}>
               <div className="flex items-center gap-2.5">
                 <div onClick={row.onToggleExpand} className="flex-1 min-w-0 cursor-pointer">
                   <div className="text-[14.5px] font-semibold capitalize" style={{ color: fg }}>{row.name}</div>

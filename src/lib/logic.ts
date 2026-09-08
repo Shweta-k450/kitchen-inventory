@@ -106,16 +106,21 @@ export function onColorMuted(hex: string): string {
   return onColor(hex) === '#ffffff' ? 'rgba(255,255,255,0.78)' : 'rgba(42,32,22,0.66)';
 }
 
-// Category chips are always the category's solid color; the selected one gets a
-// contrasting ring in its own text color.
+/** A palette swatch softened toward the page background, so coloured tiles /
+ *  chips / cards sit gently on the background rather than shouting. Strength is
+ *  a theme token (globals.css) — lower = more muted. */
+export function tileBg(color: string): string {
+  return `color-mix(in srgb, ${color} var(--tile-strength, 100%), var(--color-page))`;
+}
+
+// Category / location chips: a softened wash of the swatch colour; the selected
+// one gets an accent ring.
 export function chipStyle(selected: boolean, color: string): CSSProperties {
-  const fg = onColor(color);
   return {
-    background: color,
-    color: fg,
-    border: `2px solid ${selected ? fg : 'rgba(0,0,0,0.10)'}`,
+    background: tileBg(color),
+    color: 'var(--color-text)',
+    border: `2px solid ${selected ? 'var(--color-accent)' : 'transparent'}`,
     fontWeight: selected ? 800 : 600,
-    opacity: selected ? 1 : 0.72,
   };
 }
 

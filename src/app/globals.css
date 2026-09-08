@@ -21,6 +21,7 @@
   --color-pink: #f7e3e5;
   --color-track: #d8d2c2;
   --color-overlay: rgba(255, 255, 255, 0.82);
+  --tile-strength: 46%;
   --status-ok: #73650e;
   --status-low: #4d3181;
   --status-out: #a31c26;
@@ -52,6 +53,7 @@
   --color-pink: #3a2320;
   --color-track: #453d31;
   --color-overlay: rgba(22, 19, 15, 0.82);
+  --tile-strength: 22%;
   --status-ok: #c7b24e;
   --status-low: #a78be0;
   --status-out: #ec7a70;
