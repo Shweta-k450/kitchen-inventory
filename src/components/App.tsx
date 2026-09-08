@@ -1426,7 +1426,7 @@ export default function App() {
     <div className="min-h-dvh flex flex-col bg-white" style={{ color: text }}>
       <div className="flex-1 min-h-0 relative">
         {kitchen.status === 'connecting' ? (
-          <LoadingOverlay solid icon="fridge" title="Kit'in" label="Loading your kitchen…" />
+          <LoadingOverlay solid icon="brand" label="Loading your kitchen…" />
         ) : (
           <SwipeBack
             enabled={swipeBackHandler !== null}
@@ -1652,49 +1652,15 @@ function CookerLoader() {
   );
 }
 
-// The boot loader: a cat up on its hind legs, front paws on an open fridge door,
-// peering in at the glow (a mouse blinks back). A nod to the app's name, "Kit'in".
-function FridgeLoader() {
-  const fur = '#f7e3e5';
+// The boot loader — just the wordmark over a quiet indeterminate bar.
+function BrandLoader() {
   return (
-    <svg width="96" height="96" viewBox="0 0 64 64" fill="none" aria-hidden>
-      <path d="M2 53h40" stroke={accent} strokeWidth="1.4" strokeOpacity="0.18" strokeLinecap="round" />
-      <path className="kit-pool" d="M6 53H32l6 8H0Z" fill="#F2C879" />
-
-      {/* fridge (right) */}
-      <rect x="30" y="7" width="27" height="49" rx="3" fill="#efe4d8" stroke={accent} strokeWidth="2.2" />
-      <rect x="33" y="10" width="21" height="43" rx="1.5" fill="#ded0be" stroke={accent} strokeWidth="1.6" />
-      <rect className="kit-glow" x="33" y="10" width="21" height="43" rx="1.5" fill="#F2C879" />
-      <path d="M34 23h19M34 34h19M34 45h19" stroke={accent} strokeWidth="1.3" strokeOpacity="0.5" strokeLinecap="round" />
-      <g className="kit-blink">
-        <circle cx="43" cy="19" r="1" fill={accent} />
-        <circle cx="46.5" cy="19" r="1" fill={accent} />
-      </g>
-      <g className="kit-door">
-        <rect x="31" y="8" width="23" height="47" rx="2.5" fill={fur} stroke={accent} strokeWidth="2.2" />
-        <path d="M31 21h23" stroke={accent} strokeWidth="1.8" />
-        <path d="M35 13v8" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
-        <circle cx="46" cy="31" r="1.2" fill={accent} fillOpacity="0.4" />
-        <path d="M43 39h6M43 42h4" stroke={accent} strokeWidth="1.2" strokeOpacity="0.4" strokeLinecap="round" />
-      </g>
-
-      {/* cat — rear 3/4 view, up on its hind legs */}
-      <g className="kit-breathe">
-        <path d="M12 50.5c-2.6 0-3 2.2-3 3.2h6c0-2.2-1-3.2-3-3.2zM19.5 50.5c-2.6 0-3 2.2-3 3.2h6c0-2.2-1-3.2-3-3.2z" fill={fur} stroke={accent} strokeWidth="1.6" strokeLinejoin="round" />
-        <g className="kit-tail">
-          <path d="M10 43c-4 3-7 9-4 12 2 2 5 1.5 6-1" stroke={accent} strokeWidth="2.6" strokeLinecap="round" />
-        </g>
-        <path d="M10 51C6 43 7 27 13 21c3-3 8-3 11 0 6 6 5 24 0 30-3 3-11 3-14 0z" fill={fur} stroke={accent} strokeWidth="2.2" strokeLinejoin="round" />
-        <path d="M13 30l1.5 3M17 35l1.5 3M20 28l1.5 3M15 41l1.5 3" stroke={accent} strokeWidth="1" strokeOpacity="0.32" strokeLinecap="round" />
-        <ellipse cx="20" cy="17" rx="6" ry="5.5" fill={fur} stroke={accent} strokeWidth="2.2" transform="rotate(14 20 17)" />
-        <path d="M13 15Q15 6 20 12Z" fill={fur} stroke={accent} strokeWidth="1.8" strokeLinejoin="round" />
-        <path d="M21 11Q27 5 27 14Z" fill={fur} stroke={accent} strokeWidth="1.8" strokeLinejoin="round" />
-        <path d="M21 22C23 16 27 14 30 16" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
-        <path d="M24 24C26 19 29 18 31 20" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
-        <circle cx="30" cy="16" r="1.8" fill={fur} stroke={accent} strokeWidth="1.4" />
-        <circle cx="31" cy="20" r="1.8" fill={fur} stroke={accent} strokeWidth="1.4" />
-      </g>
-    </svg>
+    <div className="flex flex-col items-center gap-3.5">
+      <div className="text-[32px] font-extrabold tracking-tight" style={{ color: accent }}>{"Kit'in"}</div>
+      <div className="relative h-[3px] w-32 rounded-full overflow-hidden" style={{ background: hexToRgba(accent, 0.13) }}>
+        <div className="kl-bar absolute inset-y-0 left-0 w-[45%] rounded-full" style={{ background: accent }} />
+      </div>
+    </div>
   );
 }
 
@@ -1715,14 +1681,13 @@ function BookSearchLoader() {
   );
 }
 
-function LoadingOverlay({ label, title, solid, icon }: { label: string; title?: string; solid?: boolean; icon?: 'cooker' | 'fridge' | 'book' }) {
+function LoadingOverlay({ label, solid, icon }: { label: string; solid?: boolean; icon?: 'cooker' | 'brand' | 'book' }) {
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 px-8 text-center"
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2.5 px-8 text-center"
       style={solid ? { background: '#fff' } : { background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
     >
-      {icon === 'fridge' ? <FridgeLoader /> : icon === 'book' ? <BookSearchLoader /> : <CookerLoader />}
-      {title && <div className="text-[22px] font-extrabold mt-1.5 tracking-tight" style={{ color: accent }}>{title}</div>}
+      {icon === 'brand' ? <BrandLoader /> : icon === 'book' ? <BookSearchLoader /> : <CookerLoader />}
       <div className="text-[13px] font-semibold" style={{ color: muted }}>{label}</div>
     </div>
   );
