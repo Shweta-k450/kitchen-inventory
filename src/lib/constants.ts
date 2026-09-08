@@ -78,7 +78,10 @@ export const STORES: StoreDef[] = [
 export const STORE_MAP: Record<string, StoreDef> = {};
 STORES.forEach((s) => { STORE_MAP[s.id] = s; });
 
-export const STATUS_COLORS: Record<string, string> = { ok: '#73650e', low: '#4d3181', out: '#a31c26', 'buy-now': '#7e4c25', skip: '#78745e' };
+export const STATUS_COLORS: Record<string, string> = {
+  ok: 'var(--status-ok)', low: 'var(--status-low)', out: 'var(--status-out)',
+  'buy-now': 'var(--status-buy-now)', skip: 'var(--status-skip)',
+};
 export const STATUS_LABELS: Record<string, string> = { low: 'Low', out: 'Out', 'buy-now': 'Buy Now', skip: 'Skip' };
 
 export const BIN_PRESETS = ['Baking Bin', 'Noodle and Pasta Bin', 'Condiment Shelf', 'Snack Shelf', 'Indian Spices Bin', 'Indian Pantry Bin', 'Drinks Shelf', 'Spice Drawer', 'Breakfast Shelf', 'Dry Ingredients Shelf', 'Island'];

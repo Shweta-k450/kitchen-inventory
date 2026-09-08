@@ -2,6 +2,7 @@
 
 import { useState, useMemo, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import { useKitchenData } from '@/hooks/useKitchenData';
+import { useTheme } from '@/hooks/useTheme';
 import {
   CATEGORIES, CATEGORY_MAP, LOCATIONS, LOCATION_MAP, LOCATION_PALETTE, MEAL_SLOTS, STORES, STATUS_COLORS, UNITS, RECIPE_UNITS, LEFTOVER_DAYS,
   DATE_TYPE_BY_CATEGORY, DEFAULT_LOCATION_BY_CATEGORY,
@@ -110,16 +111,27 @@ const initialState: UiState = {
   dismissedPlanNeeds: [], planView: 'week', cookEntryId: null,
 };
 
-const card = '#f9f6f3';
-const border = '#dacabe';
-const text = '#302a06';
-const muted = '#7a7452';
-const accent = '#621117';
-const section = '#efe4d8';
-const errorColor = '#a31c26';
+// All chrome colours are CSS custom properties (defined light + dark in
+// globals.css); `data-theme` on <html> flips them instantly.
+const page = 'var(--color-page)';
+const card = 'var(--color-card)';
+const border = 'var(--color-border)';
+const text = 'var(--color-text)';
+const muted = 'var(--color-text-muted)';
+const faint = 'var(--color-text-faint)';
+const accent = 'var(--color-accent)';
+const accentSolid = 'var(--color-accent-solid)';
+const section = 'var(--color-section)';
+const errorColor = 'var(--color-error)';
+const successColor = 'var(--color-success)';
+const successBg = 'var(--color-success-bg)';
+const warnColor = 'var(--color-warn)';
+const pink = 'var(--color-pink)';
+const overlayBg = 'var(--color-overlay)';
 
 export default function App() {
   const kitchen = useKitchenData();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [st, setStRaw] = useState<UiState>(initialState);
   const patch = (p: Partial<UiState>) => setStRaw((prev) => ({ ...prev, ...p }));
 
@@ -697,7 +709,7 @@ export default function App() {
     .map((n) => ({
       id: 'plan-' + n.key,
       name: n.buyText ? `${n.label} — ~${n.buyText}` : n.label,
-      dotColor: accent, hasMeta: true, meta: 'For: ' + n.recipeNames.join(', '),
+      dotColor: accentSolid, hasMeta: true, meta: 'For: ' + n.recipeNames.join(', '),
       hasBadge: false, badgeText: '', badgeStyle: null,
       onCheck: checkPlanNeed(n.key, n.label),
     }));
@@ -945,7 +957,7 @@ export default function App() {
     )
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((r) => ({
-      id: r.id, name: r.name, dotColor: accent,
+      id: r.id, name: r.name, dotColor: accentSolid,
       meta: r.readyLabel, metaColor: muted,
       hasBadge: false, badgeText: '', badgeStyle: null as { background: string; color: string } | null,
       onOpen: openRecipe('search')(r.id),
@@ -1030,7 +1042,7 @@ export default function App() {
       ing.category ? CATEGORY_MAP[ing.category].label : 'Uncategorized',
       ing.amount != null ? `${formatAmount(ing.amount)}${ing.unit && ing.unit !== 'count' ? ' ' + ing.unit : ''}` : (ing.quantity || null),
     ].filter(Boolean).join(' · '),
-    catDot: ing.category ? CATEGORY_MAP[ing.category].color : '#a6a496',
+    catDot: ing.category ? CATEGORY_MAP[ing.category].color : faint,
     isExpanded: st.expandedRecipeIngredientId === ing.ingId,
     needsAmount: ing.trackable !== false && ing.amount == null,
     onToggleExpand: toggleIngredientExpand(ing.ingId),
@@ -1062,6 +1074,7 @@ export default function App() {
             locationCards={homeLocationCards}
             onAddLocation={addStorageLocation}
             toSortCount={toSortItems.length} onOpenToSort={openToSort}
+            theme={theme} onToggleTheme={toggleTheme}
           />
         );
       case 'expiring':
@@ -1332,7 +1345,7 @@ export default function App() {
             recipes={filteredRecipes.map((r) => ({
               id: r.id, name: r.name, hasPhoto: !!r.photoDataUrl, photoDataUrl: r.photoDataUrl || '',
               readyLabel: r.readyLabel,
-              readyBadgeStyle: r.readiness.ready ? { background: hexToRgba('#4d7a1e', 0.16), color: '#3d6218' } : { background: section, color: muted },
+              readyBadgeStyle: r.readiness.ready ? { background: hexToRgba(successBg, 0.16), color: successColor } : { background: section, color: muted },
               selected: st.recipeSelection.includes(r.id),
               onToggleSelect: toggleRecipeSelected(r.id),
               onOpen: openRecipe('recipes')(r.id),
@@ -1353,11 +1366,11 @@ export default function App() {
               const m = matchIngredient(ing, kitchen.items);
               let statusText: string; let statusColor: string;
               if (m.alwaysHave) { statusText = 'Always on hand'; statusColor = muted; }
-              else if (m.has) { statusText = 'In stock'; statusColor = '#3d6218'; }
+              else if (m.has) { statusText = 'In stock'; statusColor = successColor; }
               else if (m.matchedItem) { statusText = ({ low: 'Low', out: 'Out', 'buy-now': 'Buy Now', skip: 'Skip' } as Record<string, string>)[m.matchedItem.status] || 'Not enough'; statusColor = errorColor; }
               else { statusText = 'Not in pantry'; statusColor = errorColor; }
               const amt = ing.quantity || (ing.amount != null ? `${formatAmount(ing.amount)}${ing.unit && ing.unit !== 'count' ? ' ' + ing.unit : ''}` : '');
-              return { ingId: ing.ingId, text: titleCaseWords(ing.name) + (amt ? ' — ' + amt : ''), statusText, statusColor, dotColor: (m.has || m.alwaysHave) ? '#3d6218' : errorColor };
+              return { ingId: ing.ingId, text: titleCaseWords(ing.name) + (amt ? ' — ' + amt : ''), statusText, statusColor, dotColor: (m.has || m.alwaysHave) ? successColor : errorColor };
             })}
             currentCategory={selectedRecipe.category || null}
             categoryChips={knownRecipeCategories(kitchen.recipes).map((c) => ({ label: c, active: normCat(selectedRecipe.category) === normCat(c), onClick: setDetailRecipeCategory(c) }))}
@@ -1423,7 +1436,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-dvh flex flex-col bg-white" style={{ color: text }}>
+    <div className="min-h-dvh flex flex-col" style={{ color: text, background: page }}>
       <div className="flex-1 min-h-0 relative">
         {kitchen.status === 'connecting' ? (
           <LoadingOverlay solid icon="brand" label="Loading your kitchen…" />
@@ -1462,8 +1475,9 @@ function HomeScreen(props: {
   locationCards: { id: string; label: string; color: string; icon: 'box' | 'fridge' | 'snow'; count: number; alerts: number; onOpen: () => void }[];
   onAddLocation: (name: string) => void;
   toSortCount: number; onOpenToSort: () => void;
+  theme: 'light' | 'dark'; onToggleTheme: () => void;
 }) {
-  const { totalItems, locationCount, dbStatus, restockCount, expiringSoonCount, goGrocery, onExpiring, onSearch, locationCards, onAddLocation, toSortCount, onOpenToSort } = props;
+  const { totalItems, locationCount, dbStatus, restockCount, expiringSoonCount, goGrocery, onExpiring, onSearch, locationCards, onAddLocation, toSortCount, onOpenToSort, theme, onToggleTheme } = props;
   const showSyncBanner = dbStatus === 'unavailable' || dbStatus === 'error';
   const [locOpen, setLocOpen] = useState(false);
   const [newLoc, setNewLoc] = useState('');
@@ -1476,9 +1490,18 @@ function HomeScreen(props: {
           <div className="text-[26px] font-extrabold mt-1" style={{ color: text }}>Our Kitchen</div>
           <div className="text-sm mt-1" style={{ color: muted }}>{totalItems} items across {locationCount} location{locationCount === 1 ? '' : 's'}</div>
         </div>
-        <button onClick={onSearch} aria-label="Search" className="shrink-0 mt-1 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: section }}>
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-        </button>
+        <div className="shrink-0 mt-1 flex gap-2">
+          <button onClick={onToggleTheme} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: section }}>
+            {theme === 'dark' ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4.5" /><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" /></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z" /></svg>
+            )}
+          </button>
+          <button onClick={onSearch} aria-label="Search" className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: section }}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+          </button>
+        </div>
       </div>
 
       {showSyncBanner && (
@@ -1511,7 +1534,7 @@ function HomeScreen(props: {
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[14.5px] font-bold text-white">To be sorted</div>
-            <div className="text-[12.5px] mt-0.5" style={{ color: 'rgba(255,255,255,0.8)' }}>{toSortCount} item{toSortCount === 1 ? '' : 's'} to place or update</div>
+            <div className="text-[12.5px] mt-0.5" style={{ color: 'rgba(255,255,255,0.82)' }}>{toSortCount} item{toSortCount === 1 ? '' : 's'} to place or update</div>
           </div>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M9 5l7 7-7 7" /></svg>
         </div>
@@ -1546,9 +1569,9 @@ function HomeScreen(props: {
         {locationCards.map((c) => {
           const fg = onColor(c.color);
           return (
-            <div key={c.id} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: c.color, border: '1px solid rgba(0,0,0,0.06)' }}>
+            <div key={c.id} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: c.color, border: '1px solid var(--color-hairline)' }}>
               {c.alerts > 0 && (
-                <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: '#fff', color: errorColor }}>
+                <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: page, color: errorColor }}>
                   {c.alerts}
                 </div>
               )}
@@ -1578,7 +1601,7 @@ function RowCard({ row }: { row: { id: string; name: string; dotColor: string; m
   const fg = onColor(bg);
   const fgMuted = onColorMuted(bg);
   return (
-    <div onClick={row.onOpen} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2 cursor-pointer" style={{ background: bg, border: '1px solid rgba(0,0,0,0.06)' }}>
+    <div onClick={row.onOpen} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2 cursor-pointer" style={{ background: bg, border: '1px solid var(--color-hairline)' }}>
       <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-[19px] leading-none" style={{ background: 'rgba(255,255,255,0.55)' }}>
         <span aria-hidden>{itemEmoji(row.name)}</span>
       </div>
@@ -1587,7 +1610,7 @@ function RowCard({ row }: { row: { id: string; name: string; dotColor: string; m
         {row.meta && <div className="text-[12.5px] mt-0.5" style={{ color: fgMuted }}>{row.meta}</div>}
       </div>
       {row.hasBadge && (
-        <div className="shrink-0 text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: 'rgba(255,255,255,0.92)', color: row.badgeStyle?.color || '#302a06' }}>{row.badgeText}</div>
+        <div className="shrink-0 text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: card, color: row.badgeStyle?.color || text }}>{row.badgeText}</div>
       )}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={fgMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M9 5l7 7-7 7" /></svg>
     </div>
@@ -1685,7 +1708,7 @@ function LoadingOverlay({ label, solid, icon }: { label: string; solid?: boolean
   return (
     <div
       className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2.5 px-8 text-center"
-      style={solid ? { background: '#fff' } : { background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
+      style={solid ? { background: page } : { background: overlayBg, backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
     >
       {icon === 'brand' ? <BrandLoader /> : icon === 'book' ? <BookSearchLoader /> : <CookerLoader />}
       <div className="text-[13px] font-semibold" style={{ color: muted }}>{label}</div>
@@ -1746,9 +1769,9 @@ function PantryBinsScreen(props: {
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-24">
         <div className="grid grid-cols-2 gap-3">
           {cards.map((c) => (
-            <div key={c.key} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: binColor, border: '1px solid rgba(0,0,0,0.06)' }}>
+            <div key={c.key} onClick={c.onOpen} className="relative rounded-2xl p-4 cursor-pointer" style={{ background: binColor, border: '1px solid var(--color-hairline)' }}>
               {c.alerts > 0 && (
-                <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: '#fff', color: errorColor }}>
+                <div className="absolute top-3 right-3 min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: page, color: errorColor }}>
                   {c.alerts}
                 </div>
               )}
@@ -1835,8 +1858,8 @@ function ItemDetailScreen(props: {
           </div>
         )}
         <div className="flex flex-wrap gap-2 mt-2.5">
-          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.catColor, color: onColor(item.catColor), border: '1px solid rgba(0,0,0,0.06)' }}>{item.catLabel}</div>
-          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.locColor, color: onColor(item.locColor), border: '1px solid rgba(0,0,0,0.06)' }}>{item.fullLocationLabel}</div>
+          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.catColor, color: onColor(item.catColor), border: '1px solid var(--color-hairline)' }}>{item.catLabel}</div>
+          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: item.locColor, color: onColor(item.locColor), border: '1px solid var(--color-hairline)' }}>{item.fullLocationLabel}</div>
           {item.hasQty && <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: section, color: text }}>{item.qtyText}</div>}
           {item.hasStore && <div className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: section, color: text }}>{item.storeLabel}</div>}
         </div>
@@ -1888,7 +1911,7 @@ function ItemDetailScreen(props: {
           <button
             onClick={onRemove}
             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-[13.5px] font-bold text-white"
-            style={{ background: errorColor, boxShadow: `0 2px 10px ${hexToRgba(errorColor, 0.35)}` }}
+            style={{ background: 'var(--color-error-solid)', boxShadow: `0 2px 10px ${hexToRgba('var(--color-error-solid)', 0.35)}` }}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" /></svg>
             Remove Item
@@ -1913,7 +1936,7 @@ function Add1Screen(props: { onCancel: () => void; onTakePhoto: (e: ChangeEvent<
       <div className="flex-1 min-h-0 flex flex-col gap-3 mt-5">
         <label className={cardClass} style={cardStyle}>
           <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onTakePhoto} />
-          <div className={iconWrap} style={{ background: '#f7e3e5' }}>
+          <div className={iconWrap} style={{ background: pink }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13" r="3.5" /></svg>
           </div>
           <div className="text-[14.5px] font-semibold" style={{ color: text }}>{photoLoading ? 'Identifying…' : 'Take a photo'}</div>
@@ -1921,7 +1944,7 @@ function Add1Screen(props: { onCancel: () => void; onTakePhoto: (e: ChangeEvent<
         </label>
 
         <div onClick={onStartReceiptScan} className={cardClass} style={cardStyle}>
-          <div className={iconWrap} style={{ background: '#f7e3e5' }}>
+          <div className={iconWrap} style={{ background: pink }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4V3z" /><path d="M9 8h6M9 12h6" /></svg>
           </div>
           <div className="text-[14.5px] font-semibold" style={{ color: text }}>Scan a grocery receipt</div>
@@ -1929,7 +1952,7 @@ function Add1Screen(props: { onCancel: () => void; onTakePhoto: (e: ChangeEvent<
         </div>
 
         <div onClick={onEnterManually} className={cardClass} style={cardStyle}>
-          <div className={iconWrap} style={{ background: '#f7e3e5' }}>
+          <div className={iconWrap} style={{ background: pink }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15.5V20h4.5L20 8.5 15.5 4 4 15.5z" /><path d="M13.5 6l4.5 4.5" /></svg>
           </div>
           <div className="text-[14.5px] font-semibold" style={{ color: text }}>Enter details manually</div>
@@ -1951,7 +1974,7 @@ function ReceiptScanScreen(props: { status: string; errorText: string; onCancel:
       {status === 'idle' && (
         <label className="mt-6 flex-1 rounded-[20px] flex flex-col items-center justify-center gap-2.5 cursor-pointer" style={{ border: `2px dashed ${border}`, background: card }}>
           <input type="file" accept="image/*" className="hidden" onChange={onFileChange} />
-          <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: '#f7e3e5' }}>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: pink }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v13M7 11l5 5 5-5" /><path d="M4 18v1.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V18" /></svg>
           </div>
           <div className="text-[14.5px] font-semibold" style={{ color: text }}>Tap to upload a receipt photo</div>
@@ -1960,7 +1983,7 @@ function ReceiptScanScreen(props: { status: string; errorText: string; onCancel:
       )}
       {status === 'loading' && (
         <div className="mt-6 flex-1 rounded-[20px] flex flex-col items-center justify-center gap-3" style={{ border: `2px dashed ${border}`, background: card }}>
-          <div className="w-16 h-16 rounded-full flex items-center justify-center animate-pulse" style={{ background: '#f7e3e5' }}>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center animate-pulse" style={{ background: pink }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4a8 8 0 1 0 8 8" /></svg>
           </div>
           <div className="text-[14.5px] font-semibold" style={{ color: text }}>Reading your receipt…</div>
@@ -1969,7 +1992,7 @@ function ReceiptScanScreen(props: { status: string; errorText: string; onCancel:
       )}
       {(status === 'error' || status === 'unavailable') && (
         <div className="mt-6 flex-1 rounded-[20px] flex flex-col items-center justify-center gap-3 p-6" style={{ border: `1.5px solid ${border}`, background: card }}>
-          <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: '#f7e3e5' }}>
+          <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: pink }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={errorColor} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5M12 16v.01" /><circle cx="12" cy="12" r="9" /></svg>
           </div>
           <div className="text-sm font-semibold text-center" style={{ color: text }}>{errorText}</div>
@@ -2026,7 +2049,7 @@ function ReceiptReviewScreen(props: {
                   <div className="text-xs mt-0.5" style={{ color: muted }}>{cat.label} · {loc.label}{it.quantity ? ' · ' + it.quantity : ''}</div>
                 </div>
                 <div onClick={onToggleExpand(it.tempId)} className="cursor-pointer shrink-0">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6a496" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={faint} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
                 </div>
               </div>
               {isExpanded && (
@@ -2077,7 +2100,7 @@ function Add2Screen(props: { hasPhoto: boolean; name: string; onNameChange: (e: 
       <div className="noscroll flex-1 min-h-0 overflow-y-auto px-5 py-5">
         <BackLink label="Back" onClick={onBack} />
         <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Confirm Details</div>
-        {hasPhoto && <div className="inline-block mt-3.5 px-3 py-1 rounded-full text-xs font-bold" style={{ background: '#f7e3e5', color: accent }}>Detected automatically — edit if needed</div>}
+        {hasPhoto && <div className="inline-block mt-3.5 px-3 py-1 rounded-full text-xs font-bold" style={{ background: pink, color: accent }}>Detected automatically — edit if needed</div>}
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Item name</div>
         <input value={name} onChange={onNameChange} placeholder="e.g. Baby Spinach" className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
         <div className="flex items-center gap-2 mt-5 mb-2">
@@ -2251,7 +2274,7 @@ function GroceryScreen(props: {
               const fg = onColor(bg);
               const fgMuted = onColorMuted(bg);
               return (
-                <div key={row.id} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2" style={{ background: bg, border: '1px solid rgba(0,0,0,0.06)' }}>
+                <div key={row.id} className="flex items-center gap-3 rounded-2xl px-3.5 py-3 mb-2" style={{ background: bg, border: '1px solid var(--color-hairline)' }}>
                   <div onClick={row.onCheck} className="shrink-0 w-6 h-6 rounded-full cursor-pointer" style={{ border: `2px solid ${fgMuted}` }} />
                   <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-[19px] leading-none" style={{ background: 'rgba(255,255,255,0.55)' }}>
                     <span aria-hidden>{itemEmoji(row.name)}</span>
@@ -2260,7 +2283,7 @@ function GroceryScreen(props: {
                     <div className="text-[14.5px] font-semibold" style={{ color: fg }}>{row.name}</div>
                     {row.hasMeta && <div className="text-[12.5px] mt-0.5" style={{ color: fgMuted }}>{row.meta}</div>}
                   </div>
-                  {row.hasBadge && <div className="shrink-0 text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: 'rgba(255,255,255,0.92)', color: row.badgeStyle?.color || '#302a06' }}>{row.badgeText}</div>}
+                  {row.hasBadge && <div className="shrink-0 text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: card, color: row.badgeStyle?.color || text }}>{row.badgeText}</div>}
                 </div>
               );
             })}
@@ -2363,7 +2386,7 @@ function RecipesScreen(props: {
             style={{ background: card, border: `1.5px solid ${r.selected ? accent : border}` }}
           >
             {selectMode && (
-              <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center" style={{ border: `2px solid ${r.selected ? accent : '#a6a496'}`, background: r.selected ? accent : 'transparent' }}>
+              <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center" style={{ border: `2px solid ${r.selected ? accent : faint}`, background: r.selected ? accent : 'transparent' }}>
                 {r.selected && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7" /></svg>}
               </div>
             )}
@@ -2408,7 +2431,7 @@ function RecipeDetailScreen(props: {
         </div>
         <div className="text-[22px] font-extrabold mt-4.5" style={{ color: text }}>{recipe.name}</div>
         <div className="flex flex-wrap items-center gap-2 mt-2.5">
-          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-bold" style={recipe.readiness.ready ? { background: hexToRgba('#4d7a1e', 0.16), color: '#3d6218' } : { background: section, color: muted }}>{recipe.readyLabel}</div>
+          <div className="px-3 py-1.5 rounded-full text-[12.5px] font-bold" style={recipe.readiness.ready ? { background: hexToRgba(successBg, 0.16), color: successColor } : { background: section, color: muted }}>{recipe.readyLabel}</div>
           <div onClick={() => setCatOpen((v) => !v)} className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold cursor-pointer" style={{ background: currentCategory ? hexToRgba(accent, 0.12) : section, color: currentCategory ? accent : muted }}>
             {currentCategory || 'Add category'} {catOpen ? '▴' : '▾'}
           </div>
@@ -2448,19 +2471,19 @@ function RecipeDetailScreen(props: {
                 </div>
               ))}
             </div>
-            <div className="text-[11.5px] mt-2" style={{ color: '#a6a496' }}>Estimated by AI from the ingredient list — not a certified nutrition label.</div>
+            <div className="text-[11.5px] mt-2" style={{ color: faint }}>Estimated by AI from the ingredient list — not a certified nutrition label.</div>
           </>
         )}
         {needsServings && (
           <>
             <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Nutrition (per serving)</div>
-            <div className="text-[13px]" style={{ color: '#a6a496' }}>Add a serving count to this recipe to get a nutrition estimate.</div>
+            <div className="text-[13px]" style={{ color: faint }}>Add a serving count to this recipe to get a nutrition estimate.</div>
           </>
         )}
         {nutritionUnavailable && (
           <>
             <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Nutrition (per serving)</div>
-            <div className="text-[13px]" style={{ color: '#a6a496' }}>Couldn&apos;t estimate this — try saving the recipe again.</div>
+            <div className="text-[13px]" style={{ color: faint }}>Couldn&apos;t estimate this — try saving the recipe again.</div>
           </>
         )}
 
@@ -2483,7 +2506,7 @@ function RecipeDetailScreen(props: {
           <button
             onClick={onDelete}
             className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-[13.5px] font-bold text-white"
-            style={{ background: errorColor, boxShadow: `0 2px 10px ${hexToRgba(errorColor, 0.35)}` }}
+            style={{ background: 'var(--color-error-solid)', boxShadow: `0 2px 10px ${hexToRgba('var(--color-error-solid)', 0.35)}` }}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" /></svg>
             Delete Recipe
@@ -2527,7 +2550,7 @@ function RecipeAdd1Screen(props: {
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Servings</div>
         <input value={servings} onChange={onServingsChange} placeholder="e.g. 4" type="number" min={1} className="w-full h-[46px] rounded-xl px-3.5 text-[15px] outline-none" style={{ border: `1.5px solid ${border}`, background: card, color: text }} />
-        <div className="text-xs mt-1" style={{ color: '#a6a496' }}>Used to estimate nutrition per serving.</div>
+        <div className="text-xs mt-1" style={{ color: faint }}>Used to estimate nutrition per serving.</div>
 
         <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-2" style={{ color: muted }}>Ingredients</div>
         <textarea value={ingredientText} onChange={onIngredientTextChange} placeholder="Paste ingredients here, one per line…" className="w-full h-[140px] rounded-xl p-3.5 text-sm outline-none resize-none" style={{ border: `1.5px solid ${border}`, background: card, color: text, fontFamily: 'inherit' }} />
@@ -2585,13 +2608,13 @@ function RecipeAdd2Screen(props: {
           const fg = onColor(bg);
           const fgMuted = onColorMuted(bg);
           return (
-            <div key={row.ingId} className="rounded-2xl p-3.5 mt-3" style={{ background: bg, border: '1px solid rgba(0,0,0,0.06)' }}>
+            <div key={row.ingId} className="rounded-2xl p-3.5 mt-3" style={{ background: bg, border: '1px solid var(--color-hairline)' }}>
               <div className="flex items-center gap-2.5">
                 <div onClick={row.onToggleExpand} className="flex-1 min-w-0 cursor-pointer">
                   <div className="text-[14.5px] font-semibold capitalize" style={{ color: fg }}>{row.name}</div>
                   <div className="text-xs mt-0.5" style={{ color: fgMuted }}>{row.summaryLine}</div>
                 </div>
-                {row.needsAmount && <div className="shrink-0 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.92)', color: errorColor }}>needs amount</div>}
+                {row.needsAmount && <div className="shrink-0 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: card, color: errorColor }}>needs amount</div>}
                 <div onClick={row.onToggleExpand} className="cursor-pointer shrink-0">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={fgMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
                 </div>
@@ -2609,7 +2632,7 @@ function RecipeAdd2Screen(props: {
                   <div className="flex flex-wrap gap-1.5">
                     {row.categoryChips.map((c) => <Chip key={String(c.id)} label={c.label} style={c.style} onClick={c.onClick} />)}
                   </div>
-                  <div onClick={row.onRemove} className="mt-3.5 text-center text-[12.5px] font-semibold cursor-pointer px-2 py-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.9)', color: errorColor }}>Remove this ingredient</div>
+                  <div onClick={row.onRemove} className="mt-3.5 text-center text-[12.5px] font-semibold cursor-pointer px-2 py-1.5 rounded-lg" style={{ background: card, color: errorColor }}>Remove this ingredient</div>
                 </div>
               )}
             </div>
@@ -2660,7 +2683,7 @@ function RecipeAdd3Screen(props: {
         ) : (
           <label className="mt-5 flex flex-col items-center justify-center gap-2.5 py-10 px-5 rounded-[20px] cursor-pointer" style={{ border: `2px dashed ${border}`, background: card }}>
             <input type="file" accept="image/*" className="hidden" onChange={onPhotoChange} />
-            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: '#f7e3e5' }}>
+            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: pink }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13" r="3.5" /></svg>
             </div>
             <div className="text-sm font-semibold" style={{ color: text }}>Tap to add a photo</div>
@@ -2700,7 +2723,7 @@ function PlanScreen(props: {
 }) {
   const { view, onSetView, weekLabel, days, hasAnyEntries, shopWeekActive, onToggleShop, onPrevWeek, onNextWeek, needRows, onGoGrocery, onGoRecipes, fridge, eatenThisWeek } = props;
   const weekHasEntries = days.some((d) => d.entries.length);
-  const freshColor = (f: 'fresh' | 'soon' | 'past') => (f === 'past' ? errorColor : f === 'soon' ? '#7e4c25' : '#3d6218');
+  const freshColor = (f: 'fresh' | 'soon' | 'past') => (f === 'past' ? errorColor : f === 'soon' ? warnColor : successColor);
   const mealGroups = (entries: PlanEntryRow[]) => {
     const buckets = new Map<string, PlanEntryRow[]>();
     entries.forEach((e) => {
@@ -2719,7 +2742,7 @@ function PlanScreen(props: {
         <div className="text-[26px] font-extrabold" style={{ color: text }}>Meal Plan</div>
         <div className="flex gap-1.5 mt-3 p-1 rounded-xl" style={{ background: section }}>
           {(['week', 'fridge'] as const).map((v) => (
-            <div key={v} onClick={() => onSetView(v)} className="flex-1 text-center py-1.5 rounded-lg text-[13px] font-bold cursor-pointer" style={view === v ? { background: '#fff', color: accent } : { color: muted }}>
+            <div key={v} onClick={() => onSetView(v)} className="flex-1 text-center py-1.5 rounded-lg text-[13px] font-bold cursor-pointer" style={view === v ? { background: page, color: accent } : { color: muted }}>
               {v === 'week' ? 'This Week' : 'In the Fridge'}
             </div>
           ))}
@@ -2736,7 +2759,7 @@ function PlanScreen(props: {
               </button>
             </div>
             <div onClick={onToggleShop} className="flex items-center gap-2 mt-3 cursor-pointer select-none">
-              <div className="w-[30px] h-[17px] rounded-full flex items-center px-[2px] shrink-0" style={{ background: shopWeekActive ? accent : '#d8d2c2', transition: 'background 150ms ease' }}>
+              <div className="w-[30px] h-[17px] rounded-full flex items-center px-[2px] shrink-0" style={{ background: shopWeekActive ? accentSolid : 'var(--color-track)', transition: 'background 150ms ease' }}>
                 <div className="w-[13px] h-[13px] rounded-full bg-white" style={{ transform: shopWeekActive ? 'translateX(13px)' : 'translateX(0)', transition: 'transform 150ms ease' }} />
               </div>
               <div className="text-[12.5px] font-semibold" style={{ color: shopWeekActive ? accent : muted }}>Shop for this week</div>
@@ -2759,7 +2782,7 @@ function PlanScreen(props: {
                 <div className="text-[12.5px] font-bold uppercase tracking-wide mb-1.5" style={{ color: d.isToday ? accent : muted }}>
                   {d.weekday} {d.day}{d.isToday ? ' · Today' : ''}
                 </div>
-                {d.entries.length === 0 && <div className="text-[12.5px] px-1 py-1" style={{ color: '#a6a496' }}>—</div>}
+                {d.entries.length === 0 && <div className="text-[12.5px] px-1 py-1" style={{ color: faint }}>—</div>}
                 {mealGroups(d.entries).map((g, _gi, arr) => (
                   <div key={g.meta.id}>
                     {!(arr.length === 1 && g.meta.id === 'other') && (
@@ -2771,7 +2794,7 @@ function PlanScreen(props: {
                     {g.entries.map((e) => (
                       <div key={e.id} className="rounded-2xl px-3.5 py-3 mb-2" style={{ background: card, border: `1.5px solid ${border}`, opacity: e.cooked ? 0.7 : 1 }}>
                         <div className="flex items-center gap-2.5">
-                          <div className="w-2 h-2 rounded-full shrink-0" style={{ background: e.cooked ? muted : (e.ready ? '#3d6218' : errorColor) }} />
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ background: e.cooked ? muted : (e.ready ? successColor : errorColor) }} />
                           <div onClick={e.onOpen} className="flex-1 min-w-0 cursor-pointer">
                             <div className="text-[14px] font-semibold truncate" style={{ color: text }}>{e.name}</div>
                             <div className="text-[12px] mt-0.5" style={{ color: muted }}>{e.cooked ? `Cooked · ${e.servings} servings` : (e.ready ? 'Ready to cook' : 'Missing ingredients')}</div>
@@ -2784,7 +2807,7 @@ function PlanScreen(props: {
                             </div>
                           )}
                           <div onClick={e.onRemove} className="shrink-0 cursor-pointer" aria-label="Remove">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6a496" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={faint} strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
                           </div>
                         </div>
                         {e.onCook && (
@@ -2809,7 +2832,7 @@ function PlanScreen(props: {
             {shopWeekActive && weekHasEntries && (
               <div className="mt-6">
                 <div className="text-[12.5px] font-bold uppercase tracking-wide mb-2" style={{ color: muted }}>This week&apos;s shopping</div>
-                {needRows.length === 0 && <div className="text-[13px]" style={{ color: '#a6a496' }}>Everything for this week is already on hand.</div>}
+                {needRows.length === 0 && <div className="text-[13px]" style={{ color: faint }}>Everything for this week is already on hand.</div>}
                 {needRows.map((n) => (
                   <div key={n.id} className="rounded-xl px-3.5 py-2.5 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
                     <div className="text-[13.5px] font-semibold" style={{ color: text }}>{n.text}</div>
@@ -2828,7 +2851,7 @@ function PlanScreen(props: {
         {view === 'fridge' && (
           <>
             <div className="text-[12.5px] font-bold uppercase tracking-wide mt-4 mb-2" style={{ color: muted }}>What&apos;s in the fridge</div>
-            {fridge.length === 0 && <div className="text-[13px] py-4" style={{ color: '#a6a496' }}>Nothing cooked right now. Cook a planned recipe from the This Week tab.</div>}
+            {fridge.length === 0 && <div className="text-[13px] py-4" style={{ color: faint }}>Nothing cooked right now. Cook a planned recipe from the This Week tab.</div>}
             {fridge.map((f) => (
               <div key={f.id} className="rounded-2xl p-3.5 mb-2.5" style={{ background: card, border: `1.5px solid ${border}` }}>
                 <div className="flex items-start justify-between gap-2">
@@ -2853,7 +2876,7 @@ function PlanScreen(props: {
             ))}
 
             <div className="text-[12.5px] font-bold uppercase tracking-wide mt-6 mb-2" style={{ color: muted }}>Eaten this week</div>
-            {eatenThisWeek.length === 0 && <div className="text-[13px]" style={{ color: '#a6a496' }}>Nothing logged yet.</div>}
+            {eatenThisWeek.length === 0 && <div className="text-[13px]" style={{ color: faint }}>Nothing logged yet.</div>}
             {eatenThisWeek.map((d) => (
               <div key={d.date} className="rounded-xl px-3.5 py-2.5 mb-2" style={{ background: card, border: `1.5px solid ${border}` }}>
                 <div className="text-[12.5px] font-bold" style={{ color: text }}>{d.label}</div>
@@ -2881,7 +2904,7 @@ function CookConfirmScreen(props: {
         <div className="text-[22px] font-extrabold mt-3.5" style={{ color: text }}>Cook {name}?</div>
         <div className="text-[13.5px] mt-1" style={{ color: muted }}>Making {servings} serving{servings === 1 ? '' : 's'}. This deducts from your inventory:</div>
 
-        {effects.length === 0 && <div className="text-[13px] mt-4" style={{ color: '#a6a496' }}>Nothing to deduct — no tracked ingredients matched an item with a quantity.</div>}
+        {effects.length === 0 && <div className="text-[13px] mt-4" style={{ color: faint }}>Nothing to deduct — no tracked ingredients matched an item with a quantity.</div>}
         {effects.map((x, i) => (
           <div key={i} className="rounded-xl px-3.5 py-2.5 mt-2" style={{ background: card, border: `1.5px solid ${border}` }}>
             <div className="text-[13.5px] font-semibold" style={{ color: text }}>{x.itemName}</div>
@@ -2892,7 +2915,7 @@ function CookConfirmScreen(props: {
         {unmatched.length > 0 && (
           <>
             <div className="text-[12.5px] font-bold uppercase tracking-wide mt-5 mb-1.5" style={{ color: muted }}>Not in inventory</div>
-            <div className="text-[13px]" style={{ color: '#a6a496' }}>{unmatched.join(', ')} — not deducted.</div>
+            <div className="text-[13px]" style={{ color: faint }}>{unmatched.join(', ')} — not deducted.</div>
           </>
         )}
       </div>
@@ -2952,7 +2975,7 @@ function PlanAddScreen(props: {
 
 function BottomNav(props: { activeTab: string; addVariant?: 'item' | 'plan'; onHome: () => void; onRecipes: () => void; onPlan: () => void; onGrocery: () => void; onAdd: () => void }) {
   const { activeTab, addVariant, onHome, onRecipes, onPlan, onGrocery, onAdd } = props;
-  const col = (t: string) => (activeTab === t ? accent : '#a6a496');
+  const col = (t: string) => (activeTab === t ? accent : faint);
   return (
     <div className="relative shrink-0 h-[86px] flex items-start justify-around pt-2.5" style={{ background: card, borderTop: `1px solid ${border}` }}>
       <div onClick={onHome} className="flex flex-col items-center gap-0.5 cursor-pointer w-[62px]">

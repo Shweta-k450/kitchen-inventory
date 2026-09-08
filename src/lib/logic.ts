@@ -78,7 +78,12 @@ export function parseQtyString(raw: string | null | undefined): { quantity: numb
   return { quantity, unit: u && map[u] ? map[u] : 'count' };
 }
 
+/** Translucent version of a colour. Accepts a hex, or a `var(--…)` / other CSS
+ *  colour (theme tokens) — the latter go through color-mix so they stay themed. */
 export function hexToRgba(hex: string, alpha: number): string {
+  if (!hex.startsWith('#')) {
+    return `color-mix(in srgb, ${hex} ${Math.round(alpha * 100)}%, transparent)`;
+  }
   const h = hex.replace('#', '');
   const r = parseInt(h.substring(0, 2), 16);
   const g = parseInt(h.substring(2, 4), 16);
@@ -115,8 +120,8 @@ export function chipStyle(selected: boolean, color: string): CSSProperties {
 }
 
 export function neutralChipStyle(selected: boolean): CSSProperties {
-  if (selected) return { background: '#f7e3e5', border: '1.5px solid #621117', color: '#621117', fontWeight: 700 };
-  return { background: '#f9f6f3', border: '1.5px solid #dacabe', color: '#7a7452', fontWeight: 500 };
+  if (selected) return { background: 'var(--color-pink)', border: '1.5px solid var(--color-accent)', color: 'var(--color-accent)', fontWeight: 700 };
+  return { background: 'var(--color-card)', border: '1.5px solid var(--color-border)', color: 'var(--color-text-muted)', fontWeight: 500 };
 }
 
 export interface DecoratedItem extends Item {
@@ -347,7 +352,7 @@ export function decorateItem(item: Item, locations: LocationDef[] = LOCATIONS): 
     const pastVerb = item.dateType === 'consume-by' ? 'Was due ' : 'Expired ';
     dateText = (days < 0 ? pastVerb : verb) + formatDate(item.date);
   }
-  const dateColor = (urgency === 'urgent' || (days ?? 0) < 0) ? '#a31c26' : urgency === 'soon' ? '#7e4c25' : '#7a7452';
+  const dateColor = (urgency === 'urgent' || (days ?? 0) < 0) ? 'var(--date-urgent)' : urgency === 'soon' ? 'var(--date-soon)' : 'var(--date-normal)';
   const badgeText = STATUS_LABELS[item.status] || '';
   const badgeStyle = badgeText ? { background: hexToRgba(STATUS_COLORS[item.status], 0.16), color: STATUS_COLORS[item.status] } : null;
   const store = item.store ? STORE_MAP[item.store] : null;
@@ -465,7 +470,7 @@ export function buildPantrySections(decorated: DecoratedItem[], openItem: (id: s
     rows: g.items.map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
       meta: [i.catLabel, i.qtyText, i.dateText].filter(Boolean).join(' · '),
-      metaColor: i.dateText ? i.dateColor : '#7a7452',
+      metaColor: i.dateText ? i.dateColor : 'var(--color-text-muted)',
       hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
       onOpen: openItem(i.id),
     })),
@@ -498,7 +503,7 @@ export function buildPantryBinCategorySections(decorated: DecoratedItem[], bin: 
     rows: map[key].map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
       meta: [i.qtyText, i.hasDate ? i.dateText : 'No date needed'].filter(Boolean).join(' · '),
-      metaColor: i.hasDate ? i.dateColor : '#7a7452',
+      metaColor: i.hasDate ? i.dateColor : 'var(--color-text-muted)',
       hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
       onOpen: openItem(i.id),
     })),
@@ -515,7 +520,7 @@ export function buildLocationCategorySections(decorated: DecoratedItem[], locati
     rows: map[key].map((i) => ({
       id: i.id, name: i.name, dotColor: i.catDot,
       meta: [i.qtyText, i.hasDate ? i.dateText : 'No date needed'].filter(Boolean).join(' · '),
-      metaColor: i.hasDate ? i.dateColor : '#7a7452',
+      metaColor: i.hasDate ? i.dateColor : 'var(--color-text-muted)',
       hasBadge: i.hasBadge, badgeText: i.badgeText, badgeStyle: i.badgeStyle,
       onOpen: openItem(i.id),
     })),
@@ -545,7 +550,7 @@ export function buildGrocerySections(
     sections.push({
       sectionTitle: 'Added by you',
       rows: manualItems.map((m) => ({
-        id: m.id, name: m.name, dotColor: '#621117',
+        id: m.id, name: m.name, dotColor: 'var(--color-accent-solid)',
         hasMeta: false, meta: '', hasBadge: false, badgeText: '', badgeStyle: null,
         onCheck: removeManual(m.id),
       })),
@@ -614,7 +619,7 @@ export function guessMealSlot(category: string | null | undefined): MealSlot {
 /** {label, color, rank} for a meal slot; falls back to a neutral "Other" for null/unknown. */
 export function mealSlotMeta(slot: string | null | undefined): { id: string; label: string; color: string; rank: number } {
   const i = MEAL_SLOTS.findIndex((m) => m.id === slot);
-  if (i === -1) return { id: 'other', label: 'Other', color: '#dacabe', rank: 99 };
+  if (i === -1) return { id: 'other', label: 'Other', color: 'var(--color-border)', rank: 99 };
   return { ...MEAL_SLOTS[i], rank: i };
 }
 

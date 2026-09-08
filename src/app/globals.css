@@ -1,19 +1,65 @@
 @import "tailwindcss";
 
-:root {
+:root, :root[data-theme="light"] {
+  color-scheme: light;
   --color-page: #ffffff;
   --color-card: #f9f6f3;
   --color-section: #efe4d8;
   --color-border: #dacabe;
+  --color-hairline: rgba(0, 0, 0, 0.06);
   --color-text: #302a06;
   --color-text-muted: #7a7452;
   --color-text-faint: #a6a496;
   --color-accent: #621117;
+  --color-accent-solid: #621117;
   --color-accent-dark: #2d070a;
   --color-error: #a31c26;
+  --color-error-solid: #a31c26;
   --color-success: #3d6218;
   --color-success-bg: #4d7a1e;
+  --color-warn: #7e4c25;
   --color-pink: #f7e3e5;
+  --color-track: #d8d2c2;
+  --color-overlay: rgba(255, 255, 255, 0.82);
+  --status-ok: #73650e;
+  --status-low: #4d3181;
+  --status-out: #a31c26;
+  --status-buy-now: #7e4c25;
+  --status-skip: #78745e;
+  --date-urgent: #a31c26;
+  --date-soon: #7e4c25;
+  --date-normal: #7a7452;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-page: #16130f;
+  --color-card: #211c16;
+  --color-section: #2b251c;
+  --color-border: #3b342a;
+  --color-hairline: rgba(255, 255, 255, 0.09);
+  --color-text: #efe8da;
+  --color-text-muted: #b1a691;
+  --color-text-faint: #7f7563;
+  --color-accent: #c86a5e;
+  --color-accent-solid: #8f3a30;
+  --color-accent-dark: #c86a5e;
+  --color-error: #ec7a70;
+  --color-error-solid: #9e3a33;
+  --color-success: #93c375;
+  --color-success-bg: #5e8c44;
+  --color-warn: #d8a568;
+  --color-pink: #3a2320;
+  --color-track: #453d31;
+  --color-overlay: rgba(22, 19, 15, 0.82);
+  --status-ok: #c7b24e;
+  --status-low: #a78be0;
+  --status-out: #ec7a70;
+  --status-buy-now: #d8a568;
+  --status-skip: #a49f8c;
+  --date-urgent: #ec7a70;
+  --date-soon: #d8a568;
+  --date-normal: #b1a691;
 }
 
 @theme inline {

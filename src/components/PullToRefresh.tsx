@@ -150,10 +150,10 @@ export default function PullToRefresh({
       >
         <div
           className="flex items-center justify-center rounded-full"
-          style={{ width: 34, height: 34, background: '#f9f6f3', border: '1.5px solid #e3d8c8', boxShadow: '0 2px 8px rgba(42,20,16,0.16)' }}
+          style={{ width: 34, height: 34, background: 'var(--color-card)', border: '1.5px solid var(--color-border)', boxShadow: '0 2px 10px rgba(0,0,0,0.18)' }}
         >
           {refreshing ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#621117" strokeWidth="2.5" strokeLinecap="round" className="pi-spin">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" className="pi-spin">
               <path d="M21 12a9 9 0 1 1-3-6.7" />
             </svg>
           ) : (
@@ -162,7 +162,7 @@ export default function PullToRefresh({
               height="18"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="#621117"
+              stroke="var(--color-accent)"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
