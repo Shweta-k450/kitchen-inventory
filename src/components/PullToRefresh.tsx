@@ -2,22 +2,29 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
-const PULL_MAX = 96;
-const PULL_THRESHOLD = 64;
+const PULL_MAX = 110;
+const PULL_THRESHOLD = 66;
 const REST_DURING_REFRESH = 56;
 const MIN_REFRESH_MS = 500;
+// Springy easing shared by the snap-back and the spinner — matches SwipeBack.
+const SPRING = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
 
 /**
  * Wraps the app's screens with a touch-driven pull-to-refresh gesture.
  *
- * Firestore's onSnapshot listeners already push updates in real time (e.g. when
- * someone else adds an item), so this isn't the only way data stays current — but a
- * phone that's been asleep or lost signal for a while can end up with a stalled
- * connection, and a manual "pull down to sync" is a familiar, reassuring fallback.
+ * The whole screen slides down with the finger (iOS Mail style), revealing the
+ * spinner above it, and springs back smoothly on release. During the drag the
+ * content tracks the finger 1:1 (no transition); once the finger lifts the
+ * transition kicks back in for the snap.
  *
- * Detects the currently-visible screen's own scrollable container (each screen has
- * a `.noscroll` element with `overflow-y-auto`) and only starts the gesture when
- * that container is already scrolled to the top, so it never fights normal scrolling.
+ * Firestore's onSnapshot listeners already push updates in real time, so this
+ * isn't the only way data stays current — but a phone that's been asleep or lost
+ * signal can end up with a stalled connection, and a manual "pull to sync" is a
+ * familiar, reassuring fallback.
+ *
+ * Detects the visible screen's own scrollable container (each screen has a
+ * `.noscroll` element with `overflow-y-auto`) and only starts the gesture when
+ * that container is scrolled to the top, so it never fights normal scrolling.
  */
 export default function PullToRefresh({
   onRefresh,
@@ -126,22 +133,24 @@ export default function PullToRefresh({
   }, [triggerRefresh]);
 
   const ready = pull >= PULL_THRESHOLD;
+  const active = dragging || refreshing || pull > 0;
 
   return (
-    <div ref={wrapRef} className="absolute inset-0">
+    <div ref={wrapRef} className="absolute inset-0 overflow-hidden">
+      {/* spinner — pinned just above the content's top edge, so it rides in the gap */}
       <div
         aria-hidden
         className="absolute left-0 right-0 top-0 flex justify-center pointer-events-none"
         style={{
           zIndex: 50,
-          transform: `translateY(${Math.max(pull - 40, -40)}px)`,
-          opacity: pull > 4 || refreshing ? 1 : 0,
-          transition: dragging ? 'none' : 'transform 220ms ease, opacity 220ms ease',
+          transform: `translateY(${pull - 44}px)`,
+          opacity: pull > 6 || refreshing ? 1 : 0,
+          transition: dragging ? 'opacity 120ms ease' : `${SPRING}, opacity 200ms ease`,
         }}
       >
         <div
-          className="mt-3 flex items-center justify-center rounded-full"
-          style={{ width: 36, height: 36, background: '#f9f6f3', border: '1.5px solid #e3d8c8', boxShadow: '0 2px 8px rgba(42,20,16,0.18)' }}
+          className="flex items-center justify-center rounded-full"
+          style={{ width: 34, height: 34, background: '#f9f6f3', border: '1.5px solid #e3d8c8', boxShadow: '0 2px 8px rgba(42,20,16,0.16)' }}
         >
           {refreshing ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#621117" strokeWidth="2.5" strokeLinecap="round" className="pi-spin">
@@ -164,7 +173,18 @@ export default function PullToRefresh({
           )}
         </div>
       </div>
-      {children}
+
+      {/* the whole screen slides down with the pull, then springs back */}
+      <div
+        className="absolute inset-0"
+        style={{
+          transform: `translateY(${pull}px)`,
+          transition: dragging ? 'none' : SPRING,
+          willChange: active ? 'transform' : 'auto',
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
