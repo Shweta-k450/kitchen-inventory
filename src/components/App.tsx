@@ -1012,7 +1012,10 @@ export default function App() {
     planAdd: cancelPlanAdd,
     cookConfirm: cancelCook,
   };
-  const swipeBackHandler: (() => void) | null = swipeBackHandlers[st.screen] ?? null;
+  // The Recipes tab is a root, but once a category is open a right-swipe should
+  // pop back to the category grid.
+  const recipesCategoryOpen = st.screen === 'recipes' && st.recipeCatFilter !== null;
+  const swipeBackHandler: (() => void) | null = recipesCategoryOpen ? backToRecipeCats : (swipeBackHandlers[st.screen] ?? null);
 
   const swipeBackTargets: Partial<Record<Screen, Screen>> = {
     location: 'home',
@@ -1033,7 +1036,7 @@ export default function App() {
     planAdd: 'recipes',
     cookConfirm: 'plan',
   };
-  const swipeBackTarget: Screen | null = swipeBackHandler ? (swipeBackTargets[st.screen] ?? null) : null;
+  const swipeBackTarget: Screen | null = (swipeBackHandler && !recipesCategoryOpen) ? (swipeBackTargets[st.screen] ?? null) : null;
 
   const ingredientEditorRows = () => st.recipeIngredientDrafts.map((ing) => ({
     ingId: ing.ingId, name: ing.name, quantity: ing.quantity,
@@ -1057,6 +1060,16 @@ export default function App() {
     })),
     onRemove: removeIngredientDraft(ing.ingId),
   }));
+
+  const renderRecipeCategories = (): ReactNode => (
+    <RecipeCategoriesScreen
+      total={kitchen.recipes.length}
+      readyCount={decoratedRecipes.filter((r) => r.readiness.ready).length}
+      cards={catCards}
+      onOpen={openRecipeCat}
+      onAdd={startAddRecipe}
+    />
+  );
 
   const renderScreen = (s: Screen): ReactNode => {
     switch (s) {
@@ -1330,15 +1343,7 @@ export default function App() {
           />
         );
       case 'recipes':
-        return st.recipeCatFilter === null ? (
-          <RecipeCategoriesScreen
-            total={kitchen.recipes.length}
-            readyCount={decoratedRecipes.filter((r) => r.readiness.ready).length}
-            cards={catCards}
-            onOpen={openRecipeCat}
-            onAdd={startAddRecipe}
-          />
-        ) : (
+        return st.recipeCatFilter === null ? renderRecipeCategories() : (
           <RecipesScreen
             title={recipeCatLabel}
             onBack={backToRecipeCats}
@@ -1444,8 +1449,8 @@ export default function App() {
           <SwipeBack
             enabled={swipeBackHandler !== null}
             onBack={swipeBackHandler ?? (() => {})}
-            back={swipeBackTarget ? renderScreen(swipeBackTarget) : null}
-            screenKey={st.screen}
+            back={recipesCategoryOpen ? renderRecipeCategories() : (swipeBackTarget ? renderScreen(swipeBackTarget) : null)}
+            screenKey={recipesCategoryOpen ? 'recipes:cat' : st.screen}
           >
             <PullToRefresh onRefresh={kitchen.refresh}>
               {renderScreen(st.screen)}
